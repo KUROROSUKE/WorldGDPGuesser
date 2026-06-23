@@ -225,7 +225,7 @@
 
     <div id="leaderboard">
         <h2>🏆 世界トップランキング</h2>
-        <div id="rank-list">読み込み中...</div>
+        <div id="rank-list">Firebase接続中...</div>
     </div>
 
     <div id="credit">Data Source: Zenodo (records/18429133) | 24bit RGB Encoded</div>
@@ -248,65 +248,55 @@
             serverTimestamp
         } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-        // Firebase Console の Webアプリ設定をここに貼る
         const firebaseConfig = {
-          apiKey: "AIzaSyAQ5AXvvZMGpSGabUvOl3Ixyb8NAkxsv1U",
-          authDomain: "worldgdp-e93d8.firebaseapp.com",
-          projectId: "worldgdp-e93d8",
-          storageBucket: "worldgdp-e93d8.firebasestorage.app",
-          messagingSenderId: "1026105440825",
-          appId: "1:1026105440825:web:0768885d96aedbc5e96be8",
-          measurementId: "G-X4Y9DGC0TK"
+            apiKey: "AIzaSyAQ5AXvvZMGpSGabUvOl3Ixyb8NAkxsv1U",
+            authDomain: "worldgdp-e93d8.firebaseapp.com",
+            projectId: "worldgdp-e93d8",
+            storageBucket: "worldgdp-e93d8.firebasestorage.app",
+            messagingSenderId: "1026105440825",
+            appId: "1:1026105440825:web:0768885d96aedbc5e96be8",
+            measurementId: "G-X4Y9DGC0TK"
         };
 
-        const FIREBASE_ENABLED = firebaseConfig.apiKey !== "YOUR_API_KEY";
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
 
-        let db = null;
-        let auth = null;
-        let authReady = Promise.resolve(false);
+        console.log("Firebase projectId:", firebaseConfig.projectId);
+        console.log("Firebase app initialized:", app.name);
 
-        if (FIREBASE_ENABLED) {
-            const app = initializeApp(firebaseConfig);
-            db = getFirestore(app);
-            auth = getAuth(app);
+        const authReady = signInAnonymously(auth)
+            .then(result => {
+                console.log("Anonymous auth OK:", result.user.uid);
+                return true;
+            })
+            .catch(e => {
+                console.error("Anonymous auth failed:", e);
+                return false;
+            });
 
-            authReady = signInAnonymously(auth)
-                .then(() => true)
-                .catch(e => {
-                    console.error(e);
-                    return false;
-                });
-        }
-
-        // GitHub Pages: https://kurorosuke.github.io/WorldGDPGuesser/
-        // ローカル: ./ から読む
         const GITHUB_PAGES_BASE_PATH =
-            location.hostname === 'kurorosuke.github.io'
-                ? '/WorldGDPGuesser/'
-                : './';
+            location.hostname === "kurorosuke.github.io"
+                ? "/WorldGDPGuesser/"
+                : "./";
 
-        const canvas = document.getElementById('gameCanvas');
-        const ctx = canvas.getContext('2d');
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
 
-        const hiddenCanvas = document.createElement('canvas');
-        const hiddenCtx = hiddenCanvas.getContext('2d', { willReadFrequently: true });
+        const hiddenCanvas = document.createElement("canvas");
+        const hiddenCtx = hiddenCanvas.getContext("2d", { willReadFrequently: true });
 
-        const maskCanvas = document.createElement('canvas');
-        const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
+        const maskCanvas = document.createElement("canvas");
+        const maskCtx = maskCanvas.getContext("2d", { willReadFrequently: true });
 
-        const landCanvas = document.createElement('canvas');
-        const landCtx = landCanvas.getContext('2d', { willReadFrequently: true });
+        const landCanvas = document.createElement("canvas");
+        const landCtx = landCanvas.getContext("2d", { willReadFrequently: true });
 
         const W = 4320;
         const H = 2160;
 
         const MAX_AREA_PIXELS = 15000;
-
-        // script2.py が出した値に合わせる
         const JS_MULTIPLIER = 0.000021347468646;
-
-        // 表示マップの色による海判定
-        // b が r/g よりこの値以上大きければ「青い海」とみなして面積0にする
         const WATER_BLUE_MARGIN = 10;
 
         hiddenCanvas.width = W;
@@ -343,33 +333,34 @@
             });
         }
 
-        Promise.all([
-            loadImage(mapDisplay, `${GITHUB_PAGES_BASE_PATH}map1_display_7200.png`),
-            loadImage(mapHidden, `${GITHUB_PAGES_BASE_PATH}map2_hidden_7200.png`)
-        ]).then(() => {
-            document.getElementById('loading').style.display = 'none';
+        function startGame() {
+            Promise.all([
+                loadImage(mapDisplay, `${GITHUB_PAGES_BASE_PATH}map1_display_7200.png`),
+                loadImage(mapHidden, `${GITHUB_PAGES_BASE_PATH}map2_hidden_7200.png`)
+            ]).then(() => {
+                document.getElementById("loading").style.display = "none";
 
-            resizeCanvas();
-            window.addEventListener('resize', resizeCanvas);
+                resizeCanvas();
+                window.addEventListener("resize", resizeCanvas);
 
-            offsetX = (canvas.width - W * zoom) / 2;
-            offsetY = (canvas.height - H * zoom) / 2;
+                offsetX = (canvas.width - W * zoom) / 2;
+                offsetY = (canvas.height - H * zoom) / 2;
 
-            hiddenCtx.drawImage(mapHidden, 0, 0, W, H);
-            hiddenData = hiddenCtx.getImageData(0, 0, W, H).data;
+                hiddenCtx.drawImage(mapHidden, 0, 0, W, H);
+                hiddenData = hiddenCtx.getImageData(0, 0, W, H).data;
 
-            landCtx.drawImage(mapDisplay, 0, 0, W, H);
-            landData = landCtx.getImageData(0, 0, W, H).data;
+                landCtx.drawImage(mapDisplay, 0, 0, W, H);
+                landData = landCtx.getImageData(0, 0, W, H).data;
 
-            updateAreaDisplay();
-            initGameEvents();
-            loadLeaderboard();
-            requestAnimationFrame(gameLoop);
-        }).catch(e => {
-            console.error(e);
-            document.getElementById('loading').innerText =
-                '画像の読み込みに失敗しました。ファイル名と配置を確認してください。';
-        });
+                updateAreaDisplay();
+                initGameEvents();
+                requestAnimationFrame(gameLoop);
+            }).catch(e => {
+                console.error("Image load failed:", e);
+                document.getElementById("loading").innerText =
+                    "画像の読み込みに失敗しました。ファイル名と配置を確認してください。";
+            });
+        }
 
         function resizeCanvas() {
             canvas.width = window.innerWidth;
@@ -385,8 +376,8 @@
 
             ctx.drawImage(mapDisplay, 0, 0, W, H);
 
-            ctx.fillStyle = 'rgba(255, 51, 102, 0.23)';
-            ctx.strokeStyle = 'rgba(255, 51, 102, 0.5)';
+            ctx.fillStyle = "rgba(255, 51, 102, 0.23)";
+            ctx.strokeStyle = "rgba(255, 51, 102, 0.5)";
             ctx.lineWidth = 2 / zoom;
 
             savedPolygons.forEach(poly => {
@@ -394,9 +385,11 @@
 
                 ctx.beginPath();
                 ctx.moveTo(poly[0].x, poly[0].y);
+
                 for (let i = 1; i < poly.length; i++) {
                     ctx.lineTo(poly[i].x, poly[i].y);
                 }
+
                 ctx.closePath();
                 ctx.fill();
                 ctx.stroke();
@@ -405,10 +398,12 @@
             if (isDrawing && currentPoints.length > 0) {
                 ctx.beginPath();
                 ctx.moveTo(currentPoints[0].x, currentPoints[0].y);
+
                 for (let i = 1; i < currentPoints.length; i++) {
                     ctx.lineTo(currentPoints[i].x, currentPoints[i].y);
                 }
-                ctx.strokeStyle = '#ff3366';
+
+                ctx.strokeStyle = "#ff3366";
                 ctx.lineWidth = 3 / zoom;
                 ctx.stroke();
             }
@@ -419,7 +414,7 @@
         }
 
         function showNotice(text) {
-            const el = document.getElementById('alert-msg');
+            const el = document.getElementById("alert-msg");
             el.innerText = text;
             el.style.opacity = 1;
 
@@ -433,22 +428,24 @@
         function updateAreaDisplay() {
             const remainingArea = Math.max(0, MAX_AREA_PIXELS - usedArea);
 
-            document.getElementById('area-display').innerText =
+            document.getElementById("area-display").innerText =
                 `残り面積: ${remainingArea.toLocaleString()} px / ${MAX_AREA_PIXELS.toLocaleString()} px`;
         }
 
         function fillPolygonsToMask(polygons) {
             maskCtx.clearRect(0, 0, W, H);
-            maskCtx.fillStyle = '#000000';
+            maskCtx.fillStyle = "#000000";
 
             polygons.forEach(poly => {
                 if (poly.length < 3) return;
 
                 maskCtx.beginPath();
                 maskCtx.moveTo(poly[0].x, poly[0].y);
+
                 for (let i = 1; i < poly.length; i++) {
                     maskCtx.lineTo(poly[i].x, poly[i].y);
                 }
+
                 maskCtx.closePath();
                 maskCtx.fill();
             });
@@ -469,19 +466,14 @@
             const a = landData[i + 3];
 
             if (a === 0) return 0;
-
-            // ほぼ黒い枠・背景は面積に入れない
             if (r + g + b < 30) return 0;
 
-            // 表示マップ上で青っぽいピクセルは海として0
             const isBlueWater =
                 b > g + WATER_BLUE_MARGIN &&
                 b > r + WATER_BLUE_MARGIN;
 
             if (isBlueWater) return 0;
 
-            // 青い海以外は陸として1
-            // 砂漠・氷・白っぽい陸地もここで拾う
             return 1;
         }
 
@@ -517,6 +509,7 @@
                 area += landWeight;
 
                 const intVal = getHiddenValueAtIndex(i);
+
                 if (intVal > 0 && intVal < 16777215) {
                     totalGDPRaw += intVal * JS_MULTIPLIER;
                 }
@@ -525,14 +518,14 @@
             usedArea = area;
             totalScore = Math.round(totalGDPRaw);
 
-            document.getElementById('score-display').innerText =
+            document.getElementById("score-display").innerText =
                 `$ ${totalScore.toLocaleString()} B`;
 
             updateAreaDisplay();
         }
 
         function initGameEvents() {
-            canvas.addEventListener('contextmenu', e => e.preventDefault());
+            canvas.addEventListener("contextmenu", e => e.preventDefault());
 
             function screenToWorld(clientX, clientY) {
                 const rect = canvas.getBoundingClientRect();
@@ -543,7 +536,7 @@
                 };
             }
 
-            canvas.addEventListener('mousedown', e => {
+            canvas.addEventListener("mousedown", e => {
                 if (e.button === 2) {
                     isPanning = true;
                     startPanX = e.clientX - offsetX;
@@ -555,7 +548,7 @@
                 }
             });
 
-            canvas.addEventListener('mousemove', e => {
+            canvas.addEventListener("mousemove", e => {
                 if (isPanning) {
                     offsetX = e.clientX - startPanX;
                     offsetY = e.clientY - startPanY;
@@ -569,7 +562,7 @@
                 }
             });
 
-            window.addEventListener('mouseup', e => {
+            window.addEventListener("mouseup", e => {
                 if (e.button === 2) {
                     isPanning = false;
                 }
@@ -604,7 +597,7 @@
                 }
             });
 
-            canvas.addEventListener('wheel', e => {
+            canvas.addEventListener("wheel", e => {
                 e.preventDefault();
 
                 const rect = canvas.getBoundingClientRect();
@@ -627,18 +620,12 @@
             }, { passive: false });
         }
 
-        document.getElementById('submit-btn').addEventListener('click', async () => {
-            const nameInput = document.getElementById('player-name');
-            const name = nameInput.value.trim() || '名無しさん';
-
-            if (!FIREBASE_ENABLED || !db || !auth) {
-                showNotice("ローカルに保存しました");
-                saveLocalRank(name, totalScore);
-                return;
-            }
+        document.getElementById("submit-btn").addEventListener("click", async () => {
+            const nameInput = document.getElementById("player-name");
+            const name = nameInput.value.trim() || "名無しさん";
 
             try {
-                document.getElementById('submit-btn').disabled = true;
+                document.getElementById("submit-btn").disabled = true;
 
                 const ready = await authReady;
                 const uid = auth.currentUser?.uid;
@@ -646,6 +633,13 @@
                 if (!ready || !uid) {
                     throw new Error("Firebase匿名認証に失敗しました");
                 }
+
+                console.log("Saving to Firestore:", {
+                    name,
+                    score: totalScore,
+                    area: usedArea,
+                    uid
+                });
 
                 await addDoc(collection(db, "gdp_ranking"), {
                     name: name,
@@ -655,25 +649,22 @@
                     createdAt: serverTimestamp()
                 });
 
-                showNotice("🎉 ランキングを更新しました！");
-                loadLeaderboard();
+                showNotice("🎉 Firebaseに保存しました！");
+                await loadLeaderboard();
             } catch (e) {
-                console.error(e);
-                showNotice("⚠️ Firebase保存に失敗しました");
+                console.error("Firestore save failed:", e);
+                showNotice(`⚠️ Firebase保存に失敗: ${e.code || e.message}`);
             } finally {
-                document.getElementById('submit-btn').disabled = false;
+                document.getElementById("submit-btn").disabled = false;
             }
         });
 
         async function loadLeaderboard() {
-            const rankList = document.getElementById('rank-list');
-
-            if (!FIREBASE_ENABLED || !db) {
-                showLocalRank();
-                return;
-            }
+            const rankList = document.getElementById("rank-list");
 
             try {
+                rankList.innerHTML = "読み込み中...";
+
                 const q = query(
                     collection(db, "gdp_ranking"),
                     orderBy("score", "desc"),
@@ -682,85 +673,52 @@
 
                 const querySnapshot = await getDocs(q);
 
-                rankList.innerHTML = '';
+                rankList.innerHTML = "";
                 let rank = 1;
 
                 querySnapshot.forEach(doc => {
                     const data = doc.data();
-                    const item = document.createElement('div');
+                    const item = document.createElement("div");
 
-                    item.className = 'rank-item';
+                    item.className = "rank-item";
                     item.innerHTML =
-                        `<span class="rank-name"><span class="rank-num">${rank}位</span>${escapeHTML(String(data.name ?? '名無しさん'))}</span><span class="rank-score">$ ${Number(data.score ?? 0).toLocaleString()} B</span>`;
+                        `<span class="rank-name"><span class="rank-num">${rank}位</span>${escapeHTML(String(data.name ?? "名無しさん"))}</span><span class="rank-score">$ ${Number(data.score ?? 0).toLocaleString()} B</span>`;
 
                     rankList.appendChild(item);
                     rank++;
                 });
 
                 if (rank === 1) {
-                    rankList.innerHTML = '<div style="color:#94a3b8; font-size:12px;">まだ記録がありません</div>';
+                    rankList.innerHTML =
+                        '<div style="color:#94a3b8; font-size:12px;">まだ記録がありません</div>';
                 }
             } catch (e) {
-                console.error(e);
-                rankList.innerHTML = '<div style="color:#f43f5e; font-size:12px;">読み込み失敗</div>';
+                console.error("Firestore read failed:", e);
+                rankList.innerHTML =
+                    `<div style="color:#f43f5e; font-size:12px;">読み込み失敗: ${escapeHTML(e.code || e.message)}</div>`;
             }
         }
 
-        document.getElementById('reset-btn').addEventListener('click', () => {
+        document.getElementById("reset-btn").addEventListener("click", () => {
             totalScore = 0;
             usedArea = 0;
             savedPolygons = [];
 
-            document.getElementById('score-display').innerText = "$ 0 B";
+            document.getElementById("score-display").innerText = "$ 0 B";
             updateAreaDisplay();
 
             showNotice("盤面をクリアしました");
         });
 
         function escapeHTML(str) {
-            return str
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;');
+            return String(str)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;");
         }
 
-        function saveLocalRank(name, score) {
-            let localData = JSON.parse(localStorage.getItem('gdp_local_rank') || '[]');
-
-            localData.push({
-                name,
-                score,
-                area: usedArea
-            });
-
-            localData.sort((a, b) => b.score - a.score);
-
-            localStorage.setItem('gdp_local_rank', JSON.stringify(localData.slice(0, 10)));
-
-            showLocalRank();
-        }
-
-        function showLocalRank() {
-            const rankList = document.getElementById('rank-list');
-            let localData = JSON.parse(localStorage.getItem('gdp_local_rank') || '[]');
-
-            rankList.innerHTML = '';
-
-            if (localData.length === 0) {
-                rankList.innerHTML = '<div style="color:#94a3b8; font-size:12px;">まだ記録がありません</div>';
-                return;
-            }
-
-            localData.forEach((data, i) => {
-                const item = document.createElement('div');
-
-                item.className = 'rank-item';
-                item.innerHTML =
-                    `<span class="rank-name"><span class="rank-num">${i + 1}位</span>${escapeHTML(String(data.name ?? '名無しさん'))}</span><span class="rank-score">$ ${Number(data.score ?? 0).toLocaleString()} B</span>`;
-
-                rankList.appendChild(item);
-            });
-        }
+        loadLeaderboard();
+        startGame();
     </script>
 </body>
 </html>
