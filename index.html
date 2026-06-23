@@ -3,34 +3,48 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>World GDP Collector - 24bit High Precision</title>
+    <title>World GDP Guesser</title>
     <style>
         body {
-            margin: 0; padding: 0;
-            background-color: #0d1117; color: #fff;
+            margin: 0;
+            padding: 0;
+            background-color: #0d1117;
+            color: #fff;
             font-family: 'Helvetica Neue', Arial, sans-serif;
-            overflow: hidden; user-select: none;
+            overflow: hidden;
+            user-select: none;
             display: flex;
         }
 
         #canvas-container {
-            position: relative; width: 100vw; height: 100vh;
+            position: relative;
+            width: 100vw;
+            height: 100vh;
         }
 
         canvas {
-            display: block; width: 100%; height: 100%; cursor: grab;
+            display: block;
+            width: 100%;
+            height: 100%;
+            cursor: grab;
         }
 
-        canvas:active { cursor: grabbing; }
+        canvas:active {
+            cursor: grabbing;
+        }
 
         #ui-panel {
-            position: absolute; bottom: 25px; left: 25px;
+            position: absolute;
+            bottom: 25px;
+            left: 25px;
             background: rgba(15, 23, 42, 0.85);
             backdrop-filter: blur(8px);
-            padding: 20px; border-radius: 12px;
+            padding: 20px;
+            border-radius: 12px;
             border: 1px solid rgba(255, 255, 255, 0.1);
             box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-            width: 280px; z-index: 10;
+            width: 280px;
+            z-index: 10;
         }
 
         .label {
@@ -88,14 +102,23 @@
             transition: 0.2s;
         }
 
-        button:hover { background: #2563eb; }
+        button:hover {
+            background: #2563eb;
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
 
         #reset-btn {
             background: #475569;
             margin-top: 5px;
         }
 
-        #reset-btn:hover { background: #334155; }
+        #reset-btn:hover {
+            background: #334155;
+        }
 
         #leaderboard {
             position: absolute;
@@ -123,15 +146,27 @@
         .rank-item {
             display: flex;
             justify-content: space-between;
+            gap: 8px;
             padding: 6px 0;
             font-size: 14px;
             border-bottom: 1px solid #1e293b;
+        }
+
+        .rank-name {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .rank-num {
             color: #94a3b8;
             font-weight: bold;
             margin-right: 8px;
+        }
+
+        .rank-score {
+            white-space: nowrap;
+            color: #ffd700;
         }
 
         #controls-help {
@@ -166,12 +201,13 @@
             font-size: 24px;
             font-weight: bold;
             color: #64748b;
+            z-index: 20;
         }
     </style>
 </head>
 <body>
 
-    <div id="loading">🌍 24bit高精度経済マッピングをロード中...</div>
+    <div id="loading">🌍 ロード中...</div>
     <div id="controls-help">🖱️ 左ドラッグ：囲む | 右ドラッグ：カメラ移動 | ホイール：拡大縮小</div>
 
     <div id="ui-panel">
@@ -201,32 +237,52 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
         import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-        import { getFirestore, collection, addDoc, getDocs, query, orderBy, limit, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+        import {
+            getFirestore,
+            collection,
+            addDoc,
+            getDocs,
+            query,
+            orderBy,
+            limit,
+            serverTimestamp
+        } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
+        // Firebase Console の Webアプリ設定をここに貼る
         const firebaseConfig = {
-            apiKey: "AIzaSyAQ5AXvvZMGpSGabUvOl3Ixyb8NAkxsv1U",
-            authDomain: "worldgdp-e93d8.firebaseapp.com",
-            projectId: "worldgdp-e93d8",
-            storageBucket: "worldgdp-e93d8.firebasestorage.app",
-            messagingSenderId: "1026105440825",
-            appId: "1:1026105440825:web:0768885d96aedbc5e96be8",
-            measurementId: "G-X4Y9DGC0TK"
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_PROJECT.firebaseapp.com",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_PROJECT.appspot.com",
+            messagingSenderId: "YOUR_ID",
+            appId: "YOUR_APP_ID"
         };
 
+        const FIREBASE_ENABLED = firebaseConfig.apiKey !== "YOUR_API_KEY";
 
         let db = null;
         let auth = null;
-        let authReady = Promise.resolve();
+        let authReady = Promise.resolve(false);
 
-        if (firebaseConfig.apiKey !== "YOUR_API_KEY") {
+        if (FIREBASE_ENABLED) {
             const app = initializeApp(firebaseConfig);
             db = getFirestore(app);
             auth = getAuth(app);
 
-            authReady = signInAnonymously(auth).catch(e => {
-                console.error(e);
-            });
+            authReady = signInAnonymously(auth)
+                .then(() => true)
+                .catch(e => {
+                    console.error(e);
+                    return false;
+                });
         }
+
+        // GitHub Pages: https://kurorosuke.github.io/WorldGDPGuesser/
+        // ローカル: ./ から読む
+        const GITHUB_PAGES_BASE_PATH =
+            location.hostname === 'kurorosuke.github.io'
+                ? '/WorldGDPGuesser/'
+                : './';
 
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
@@ -237,16 +293,27 @@
         const maskCanvas = document.createElement('canvas');
         const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
 
+        const landCanvas = document.createElement('canvas');
+        const landCtx = landCanvas.getContext('2d', { willReadFrequently: true });
+
         const W = 4320;
         const H = 2160;
 
         const MAX_AREA_PIXELS = 15000;
+
+        // script2.py が出した値に合わせる
         const JS_MULTIPLIER = 0.000021347468646;
+
+        // 表示マップの色による海判定
+        // b が r/g よりこの値以上大きければ「青い海」とみなして面積0にする
+        const WATER_BLUE_MARGIN = 10;
 
         hiddenCanvas.width = W;
         hiddenCanvas.height = H;
         maskCanvas.width = W;
         maskCanvas.height = H;
+        landCanvas.width = W;
+        landCanvas.height = H;
 
         let zoom = 1;
         let offsetX = 0;
@@ -261,17 +328,23 @@
         let currentPoints = [];
         let savedPolygons = [];
         let hiddenData = null;
+        let landData = null;
         let alertTimeout = null;
 
         const mapDisplay = new Image();
         const mapHidden = new Image();
 
-        mapDisplay.src = `https://kurorosuke.github.io/WorldGDPGuesser/map1_display_7200.png`;
-        mapHidden.src = `https://kurorosuke.github.io/WorldGDPGuesser/map2_hidden_7200.png`;
+        function loadImage(img, src) {
+            return new Promise((resolve, reject) => {
+                img.onload = () => resolve();
+                img.onerror = () => reject(new Error(`画像を読み込めません: ${src}`));
+                img.src = src;
+            });
+        }
 
         Promise.all([
-            new Promise(r => mapDisplay.onload = r),
-            new Promise(r => mapHidden.onload = r)
+            loadImage(mapDisplay, `${GITHUB_PAGES_BASE_PATH}map1_display_7200.png`),
+            loadImage(mapHidden, `${GITHUB_PAGES_BASE_PATH}map2_hidden_7200.png`)
         ]).then(() => {
             document.getElementById('loading').style.display = 'none';
 
@@ -284,10 +357,17 @@
             hiddenCtx.drawImage(mapHidden, 0, 0, W, H);
             hiddenData = hiddenCtx.getImageData(0, 0, W, H).data;
 
+            landCtx.drawImage(mapDisplay, 0, 0, W, H);
+            landData = landCtx.getImageData(0, 0, W, H).data;
+
             updateAreaDisplay();
             initGameEvents();
             loadLeaderboard();
             requestAnimationFrame(gameLoop);
+        }).catch(e => {
+            console.error(e);
+            document.getElementById('loading').innerText =
+                '画像の読み込みに失敗しました。ファイル名と配置を確認してください。';
         });
 
         function resizeCanvas() {
@@ -373,6 +453,37 @@
             });
         }
 
+        function getHiddenValueAtIndex(i) {
+            const r = hiddenData[i];
+            const g = hiddenData[i + 1];
+            const b = hiddenData[i + 2];
+
+            return (r << 16) | (g << 8) | b;
+        }
+
+        function getLandWeightAtIndex(i) {
+            const r = landData[i];
+            const g = landData[i + 1];
+            const b = landData[i + 2];
+            const a = landData[i + 3];
+
+            if (a === 0) return 0;
+
+            // ほぼ黒い枠・背景は面積に入れない
+            if (r + g + b < 30) return 0;
+
+            // 表示マップ上で青っぽいピクセルは海として0
+            const isBlueWater =
+                b > g + WATER_BLUE_MARGIN &&
+                b > r + WATER_BLUE_MARGIN;
+
+            if (isBlueWater) return 0;
+
+            // 青い海以外は陸として1
+            // 砂漠・氷・白っぽい陸地もここで拾う
+            return 1;
+        }
+
         function calculateArea(polygons) {
             fillPolygonsToMask(polygons);
 
@@ -380,7 +491,9 @@
             let area = 0;
 
             for (let i = 0; i < maskData.length; i += 4) {
-                if (maskData[i + 3] > 0) area++;
+                if (maskData[i + 3] > 0) {
+                    area += getLandWeightAtIndex(i);
+                }
             }
 
             return area;
@@ -395,18 +508,16 @@
             let area = 0;
 
             for (let i = 0; i < maskData.length; i += 4) {
-                if (maskData[i + 3] > 0) {
-                    area++;
+                if (maskData[i + 3] <= 0) continue;
 
-                    const r = hiddenData[i];
-                    const g = hiddenData[i + 1];
-                    const b = hiddenData[i + 2];
+                const landWeight = getLandWeightAtIndex(i);
+                if (landWeight === 0) continue;
 
-                    const intVal = (r << 16) | (g << 8) | b;
+                area += landWeight;
 
-                    if (intVal > 0 && intVal < 16777215) {
-                        totalGDPRaw += intVal * JS_MULTIPLIER;
-                    }
+                const intVal = getHiddenValueAtIndex(i);
+                if (intVal > 0 && intVal < 16777215) {
+                    totalGDPRaw += intVal * JS_MULTIPLIER;
                 }
             }
 
@@ -469,7 +580,7 @@
                         const currentArea = calculateArea([currentPoints]);
 
                         if (currentArea < 10) {
-                            showNotice("⚠️ 範囲が小さすぎます！");
+                            showNotice("⚠️ 陸地の範囲が小さすぎます！");
                             currentPoints = [];
                             return;
                         }
@@ -519,7 +630,7 @@
             const nameInput = document.getElementById('player-name');
             const name = nameInput.value.trim() || '名無しさん';
 
-            if (!db || !auth) {
+            if (!FIREBASE_ENABLED || !db || !auth) {
                 showNotice("ローカルに保存しました");
                 saveLocalRank(name, totalScore);
                 return;
@@ -528,11 +639,11 @@
             try {
                 document.getElementById('submit-btn').disabled = true;
 
-                await authReady;
-
+                const ready = await authReady;
                 const uid = auth.currentUser?.uid;
-                if (!uid) {
-                    throw new Error("匿名認証に失敗しました");
+
+                if (!ready || !uid) {
+                    throw new Error("Firebase匿名認証に失敗しました");
                 }
 
                 await addDoc(collection(db, "gdp_ranking"), {
@@ -545,19 +656,18 @@
 
                 showNotice("🎉 ランキングを更新しました！");
                 loadLeaderboard();
-
-                document.getElementById('submit-btn').disabled = false;
             } catch (e) {
                 console.error(e);
+                showNotice("⚠️ Firebase保存に失敗しました");
+            } finally {
                 document.getElementById('submit-btn').disabled = false;
-                showNotice("⚠️ ランキング登録に失敗しました");
             }
         });
 
         async function loadLeaderboard() {
             const rankList = document.getElementById('rank-list');
 
-            if (!db) {
+            if (!FIREBASE_ENABLED || !db) {
                 showLocalRank();
                 return;
             }
@@ -580,11 +690,15 @@
 
                     item.className = 'rank-item';
                     item.innerHTML =
-                        `<span class="rank-name"><span class="rank-num">${rank}位</span>${escapeHTML(data.name)}</span><span>$ ${data.score.toLocaleString()} B</span>`;
+                        `<span class="rank-name"><span class="rank-num">${rank}位</span>${escapeHTML(String(data.name ?? '名無しさん'))}</span><span class="rank-score">$ ${Number(data.score ?? 0).toLocaleString()} B</span>`;
 
                     rankList.appendChild(item);
                     rank++;
                 });
+
+                if (rank === 1) {
+                    rankList.innerHTML = '<div style="color:#94a3b8; font-size:12px;">まだ記録がありません</div>';
+                }
             } catch (e) {
                 console.error(e);
                 rankList.innerHTML = '<div style="color:#f43f5e; font-size:12px;">読み込み失敗</div>';
@@ -631,12 +745,17 @@
 
             rankList.innerHTML = '';
 
+            if (localData.length === 0) {
+                rankList.innerHTML = '<div style="color:#94a3b8; font-size:12px;">まだ記録がありません</div>';
+                return;
+            }
+
             localData.forEach((data, i) => {
                 const item = document.createElement('div');
 
                 item.className = 'rank-item';
                 item.innerHTML =
-                    `<span class="rank-name"><span class="rank-num">${i + 1}位</span>${escapeHTML(data.name)}</span><span>$ ${data.score.toLocaleString()} B</span>`;
+                    `<span class="rank-name"><span class="rank-num">${i + 1}位</span>${escapeHTML(String(data.name ?? '名無しさん'))}</span><span class="rank-score">$ ${Number(data.score ?? 0).toLocaleString()} B</span>`;
 
                 rankList.appendChild(item);
             });
