@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>World GDP Collector - 24bit High Precision</title>
+    <style>
+        body {
+            margin: 0; padding: 0;
+            background-color: #0d1117; color: #fff;
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            overflow: hidden; user-select: none;
+            display: flex;
+        }
+
+        #canvas-container {
+            position: relative; width: 100vw; height: 100vh;
+        }
+
+        canvas {
+            display: block; width: 100%; height: 100%; cursor: grab;
+        }
+
+        canvas:active { cursor: grabbing; }
+
+        #ui-panel {
+            position: absolute; bottom: 25px; left: 25px;
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(8px);
+            padding: 20px; border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            width: 280px; z-index: 10;
+        }
+
+        .label {
+            font-size: 12px;
+            color: #8bc34a;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        #score-display {
+            font-size: 34px;
+            font-weight: 900;
+            color: #ffd700;
+            margin-bottom: 5px;
+            word-break: break-all;
+        }
+
+        #area-display {
+            font-size: 13px;
+            color: #cbd5e1;
+            margin-bottom: 8px;
+        }
+
+        #alert-msg {
+            font-size: 12px;
+            color: #f43f5e;
+            height: 18px;
+            margin-bottom: 12px;
+            font-weight: bold;
+            transition: opacity 0.3s;
+            opacity: 0;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 8px;
+            box-sizing: border-box;
+            background: #1e293b;
+            border: 1px solid #475569;
+            border-radius: 6px;
+            color: white;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        button {
+            width: 100%;
+            padding: 10px;
+            background: #3b82f6;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        button:hover { background: #2563eb; }
+
+        #reset-btn {
+            background: #475569;
+            margin-top: 5px;
+        }
+
+        #reset-btn:hover { background: #334155; }
+
+        #leaderboard {
+            position: absolute;
+            top: 25px;
+            right: 25px;
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(8px);
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            width: 260px;
+            max-height: 400px;
+            overflow-y: auto;
+            z-index: 10;
+        }
+
+        #leaderboard h2 {
+            margin: 0 0 15px 0;
+            font-size: 16px;
+            color: #cbd5e1;
+            border-bottom: 1px solid #334155;
+            padding-bottom: 5px;
+        }
+
+        .rank-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 0;
+            font-size: 14px;
+            border-bottom: 1px solid #1e293b;
+        }
+
+        .rank-num {
+            color: #94a3b8;
+            font-weight: bold;
+            margin-right: 8px;
+        }
+
+        #controls-help {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.6);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            color: #94a3b8;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        #credit {
+            position: absolute;
+            bottom: 10px;
+            right: 15px;
+            font-size: 10px;
+            color: rgba(255,255,255,0.4);
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 24px;
+            font-weight: bold;
+            color: #64748b;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="loading">🌍 24bit高精度経済マッピングをロード中...</div>
+    <div id="controls-help">🖱️ 左ドラッグ：囲む | 右ドラッグ：カメラ移動 | ホイール：拡大縮小</div>
+
+    <div id="ui-panel">
+        <div class="label">Total GDP</div>
+        <div id="score-display">$ 0 B</div>
+        <div id="area-display">残り面積: 15,000 px / 15,000 px</div>
+        <div id="alert-msg"></div>
+
+        <div id="submit-box">
+            <input type="text" id="player-name" placeholder="名前を入力（最大10文字）" maxLength="10">
+            <button id="submit-btn">現在の記録を登録</button>
+        </div>
+        <button id="reset-btn">盤面をクリア</button>
+    </div>
+
+    <div id="leaderboard">
+        <h2>🏆 世界トップランキング</h2>
+        <div id="rank-list">読み込み中...</div>
+    </div>
+
+    <div id="credit">Data Source: Zenodo (records/18429133) | 24bit RGB Encoded</div>
+
+    <div id="canvas-container">
+        <canvas id="gameCanvas"></canvas>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+        import { getFirestore, collection, addDoc, getDocs, query, orderBy, limit, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyAQ5AXvvZMGpSGabUvOl3Ixyb8NAkxsv1U",
+            authDomain: "worldgdp-e93d8.firebaseapp.com",
+            projectId: "worldgdp-e93d8",
+            storageBucket: "worldgdp-e93d8.firebasestorage.app",
+            messagingSenderId: "1026105440825",
+            appId: "1:1026105440825:web:0768885d96aedbc5e96be8",
+            measurementId: "G-X4Y9DGC0TK"
+        };
+
+
+        let db = null;
+        let auth = null;
+        let authReady = Promise.resolve();
+
+        if (firebaseConfig.apiKey !== "YOUR_API_KEY") {
+            const app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+
+            authReady = signInAnonymously(auth).catch(e => {
+                console.error(e);
+            });
+        }
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const hiddenCanvas = document.createElement('canvas');
+        const hiddenCtx = hiddenCanvas.getContext('2d', { willReadFrequently: true });
+
+        const maskCanvas = document.createElement('canvas');
+        const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
+
+        const W = 4320;
+        const H = 2160;
+
+        const MAX_AREA_PIXELS = 15000;
+        const JS_MULTIPLIER = 0.000021347468646;
+
+        hiddenCanvas.width = W;
+        hiddenCanvas.height = H;
+        maskCanvas.width = W;
+        maskCanvas.height = H;
+
+        let zoom = 1;
+        let offsetX = 0;
+        let offsetY = 0;
+        let isPanning = false;
+        let startPanX = 0;
+        let startPanY = 0;
+
+        let totalScore = 0;
+        let usedArea = 0;
+        let isDrawing = false;
+        let currentPoints = [];
+        let savedPolygons = [];
+        let hiddenData = null;
+        let alertTimeout = null;
+
+        const mapDisplay = new Image();
+        const mapHidden = new Image();
+
+        mapDisplay.src = `https://kurorosuke.github.io/WorldGDPGuesser/map1_display_7200.png`;
+        mapHidden.src = `https://kurorosuke.github.io/WorldGDPGuesser/map2_hidden_7200.png`;
+
+        Promise.all([
+            new Promise(r => mapDisplay.onload = r),
+            new Promise(r => mapHidden.onload = r)
+        ]).then(() => {
+            document.getElementById('loading').style.display = 'none';
+
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+
+            offsetX = (canvas.width - W * zoom) / 2;
+            offsetY = (canvas.height - H * zoom) / 2;
+
+            hiddenCtx.drawImage(mapHidden, 0, 0, W, H);
+            hiddenData = hiddenCtx.getImageData(0, 0, W, H).data;
+
+            updateAreaDisplay();
+            initGameEvents();
+            loadLeaderboard();
+            requestAnimationFrame(gameLoop);
+        });
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        function gameLoop() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            ctx.save();
+            ctx.translate(offsetX, offsetY);
+            ctx.scale(zoom, zoom);
+
+            ctx.drawImage(mapDisplay, 0, 0, W, H);
+
+            ctx.fillStyle = 'rgba(255, 51, 102, 0.23)';
+            ctx.strokeStyle = 'rgba(255, 51, 102, 0.5)';
+            ctx.lineWidth = 2 / zoom;
+
+            savedPolygons.forEach(poly => {
+                if (poly.length < 3) return;
+
+                ctx.beginPath();
+                ctx.moveTo(poly[0].x, poly[0].y);
+                for (let i = 1; i < poly.length; i++) {
+                    ctx.lineTo(poly[i].x, poly[i].y);
+                }
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+            });
+
+            if (isDrawing && currentPoints.length > 0) {
+                ctx.beginPath();
+                ctx.moveTo(currentPoints[0].x, currentPoints[0].y);
+                for (let i = 1; i < currentPoints.length; i++) {
+                    ctx.lineTo(currentPoints[i].x, currentPoints[i].y);
+                }
+                ctx.strokeStyle = '#ff3366';
+                ctx.lineWidth = 3 / zoom;
+                ctx.stroke();
+            }
+
+            ctx.restore();
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        function showNotice(text) {
+            const el = document.getElementById('alert-msg');
+            el.innerText = text;
+            el.style.opacity = 1;
+
+            if (alertTimeout) clearTimeout(alertTimeout);
+
+            alertTimeout = setTimeout(() => {
+                el.style.opacity = 0;
+            }, 3000);
+        }
+
+        function updateAreaDisplay() {
+            const remainingArea = Math.max(0, MAX_AREA_PIXELS - usedArea);
+
+            document.getElementById('area-display').innerText =
+                `残り面積: ${remainingArea.toLocaleString()} px / ${MAX_AREA_PIXELS.toLocaleString()} px`;
+        }
+
+        function fillPolygonsToMask(polygons) {
+            maskCtx.clearRect(0, 0, W, H);
+            maskCtx.fillStyle = '#000000';
+
+            polygons.forEach(poly => {
+                if (poly.length < 3) return;
+
+                maskCtx.beginPath();
+                maskCtx.moveTo(poly[0].x, poly[0].y);
+                for (let i = 1; i < poly.length; i++) {
+                    maskCtx.lineTo(poly[i].x, poly[i].y);
+                }
+                maskCtx.closePath();
+                maskCtx.fill();
+            });
+        }
+
+        function calculateArea(polygons) {
+            fillPolygonsToMask(polygons);
+
+            const maskData = maskCtx.getImageData(0, 0, W, H).data;
+            let area = 0;
+
+            for (let i = 0; i < maskData.length; i += 4) {
+                if (maskData[i + 3] > 0) area++;
+            }
+
+            return area;
+        }
+
+        function updateTotals() {
+            fillPolygonsToMask(savedPolygons);
+
+            const maskData = maskCtx.getImageData(0, 0, W, H).data;
+
+            let totalGDPRaw = 0;
+            let area = 0;
+
+            for (let i = 0; i < maskData.length; i += 4) {
+                if (maskData[i + 3] > 0) {
+                    area++;
+
+                    const r = hiddenData[i];
+                    const g = hiddenData[i + 1];
+                    const b = hiddenData[i + 2];
+
+                    const intVal = (r << 16) | (g << 8) | b;
+
+                    if (intVal > 0 && intVal < 16777215) {
+                        totalGDPRaw += intVal * JS_MULTIPLIER;
+                    }
+                }
+            }
+
+            usedArea = area;
+            totalScore = Math.round(totalGDPRaw);
+
+            document.getElementById('score-display').innerText =
+                `$ ${totalScore.toLocaleString()} B`;
+
+            updateAreaDisplay();
+        }
+
+        function initGameEvents() {
+            canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+            function screenToWorld(clientX, clientY) {
+                const rect = canvas.getBoundingClientRect();
+
+                return {
+                    x: (clientX - rect.left - offsetX) / zoom,
+                    y: (clientY - rect.top - offsetY) / zoom
+                };
+            }
+
+            canvas.addEventListener('mousedown', e => {
+                if (e.button === 2) {
+                    isPanning = true;
+                    startPanX = e.clientX - offsetX;
+                    startPanY = e.clientY - offsetY;
+                } else if (e.button === 0) {
+                    isDrawing = true;
+                    const p = screenToWorld(e.clientX, e.clientY);
+                    currentPoints = [p];
+                }
+            });
+
+            canvas.addEventListener('mousemove', e => {
+                if (isPanning) {
+                    offsetX = e.clientX - startPanX;
+                    offsetY = e.clientY - startPanY;
+                } else if (isDrawing) {
+                    const p = screenToWorld(e.clientX, e.clientY);
+                    const last = currentPoints[currentPoints.length - 1];
+
+                    if (!last || Math.hypot(p.x - last.x, p.y - last.y) > 2) {
+                        currentPoints.push(p);
+                    }
+                }
+            });
+
+            window.addEventListener('mouseup', e => {
+                if (e.button === 2) {
+                    isPanning = false;
+                }
+
+                if (e.button === 0 && isDrawing) {
+                    isDrawing = false;
+
+                    if (currentPoints.length >= 3) {
+                        const currentArea = calculateArea([currentPoints]);
+
+                        if (currentArea < 10) {
+                            showNotice("⚠️ 範囲が小さすぎます！");
+                            currentPoints = [];
+                            return;
+                        }
+
+                        const candidatePolygons = [...savedPolygons, currentPoints];
+                        const candidateArea = calculateArea(candidatePolygons);
+
+                        if (candidateArea > MAX_AREA_PIXELS) {
+                            const remainingArea = Math.max(0, MAX_AREA_PIXELS - usedArea);
+                            showNotice(`⚠️ 残り面積を超えています！残り ${remainingArea.toLocaleString()} px`);
+                            currentPoints = [];
+                            return;
+                        }
+
+                        savedPolygons.push(currentPoints);
+                        updateTotals();
+                    }
+
+                    currentPoints = [];
+                }
+            });
+
+            canvas.addEventListener('wheel', e => {
+                e.preventDefault();
+
+                const rect = canvas.getBoundingClientRect();
+                const mX = e.clientX - rect.left;
+                const mY = e.clientY - rect.top;
+
+                const worldX = (mX - offsetX) / zoom;
+                const worldY = (mY - offsetY) / zoom;
+
+                if (e.deltaY < 0) {
+                    zoom *= 1.15;
+                } else {
+                    zoom /= 1.15;
+                }
+
+                zoom = Math.max(0.4, Math.min(zoom, 25));
+
+                offsetX = mX - worldX * zoom;
+                offsetY = mY - worldY * zoom;
+            }, { passive: false });
+        }
+
+        document.getElementById('submit-btn').addEventListener('click', async () => {
+            const nameInput = document.getElementById('player-name');
+            const name = nameInput.value.trim() || '名無しさん';
+
+            if (!db || !auth) {
+                showNotice("ローカルに保存しました");
+                saveLocalRank(name, totalScore);
+                return;
+            }
+
+            try {
+                document.getElementById('submit-btn').disabled = true;
+
+                await authReady;
+
+                const uid = auth.currentUser?.uid;
+                if (!uid) {
+                    throw new Error("匿名認証に失敗しました");
+                }
+
+                await addDoc(collection(db, "gdp_ranking"), {
+                    name: name,
+                    score: totalScore,
+                    area: usedArea,
+                    uid: uid,
+                    createdAt: serverTimestamp()
+                });
+
+                showNotice("🎉 ランキングを更新しました！");
+                loadLeaderboard();
+
+                document.getElementById('submit-btn').disabled = false;
+            } catch (e) {
+                console.error(e);
+                document.getElementById('submit-btn').disabled = false;
+                showNotice("⚠️ ランキング登録に失敗しました");
+            }
+        });
+
+        async function loadLeaderboard() {
+            const rankList = document.getElementById('rank-list');
+
+            if (!db) {
+                showLocalRank();
+                return;
+            }
+
+            try {
+                const q = query(
+                    collection(db, "gdp_ranking"),
+                    orderBy("score", "desc"),
+                    limit(10)
+                );
+
+                const querySnapshot = await getDocs(q);
+
+                rankList.innerHTML = '';
+                let rank = 1;
+
+                querySnapshot.forEach(doc => {
+                    const data = doc.data();
+                    const item = document.createElement('div');
+
+                    item.className = 'rank-item';
+                    item.innerHTML =
+                        `<span class="rank-name"><span class="rank-num">${rank}位</span>${escapeHTML(data.name)}</span><span>$ ${data.score.toLocaleString()} B</span>`;
+
+                    rankList.appendChild(item);
+                    rank++;
+                });
+            } catch (e) {
+                console.error(e);
+                rankList.innerHTML = '<div style="color:#f43f5e; font-size:12px;">読み込み失敗</div>';
+            }
+        }
+
+        document.getElementById('reset-btn').addEventListener('click', () => {
+            totalScore = 0;
+            usedArea = 0;
+            savedPolygons = [];
+
+            document.getElementById('score-display').innerText = "$ 0 B";
+            updateAreaDisplay();
+
+            showNotice("盤面をクリアしました");
+        });
+
+        function escapeHTML(str) {
+            return str
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+        }
+
+        function saveLocalRank(name, score) {
+            let localData = JSON.parse(localStorage.getItem('gdp_local_rank') || '[]');
+
+            localData.push({
+                name,
+                score,
+                area: usedArea
+            });
+
+            localData.sort((a, b) => b.score - a.score);
+
+            localStorage.setItem('gdp_local_rank', JSON.stringify(localData.slice(0, 10)));
+
+            showLocalRank();
+        }
+
+        function showLocalRank() {
+            const rankList = document.getElementById('rank-list');
+            let localData = JSON.parse(localStorage.getItem('gdp_local_rank') || '[]');
+
+            rankList.innerHTML = '';
+
+            localData.forEach((data, i) => {
+                const item = document.createElement('div');
+
+                item.className = 'rank-item';
+                item.innerHTML =
+                    `<span class="rank-name"><span class="rank-num">${i + 1}位</span>${escapeHTML(data.name)}</span><span>$ ${data.score.toLocaleString()} B</span>`;
+
+                rankList.appendChild(item);
+            });
+        }
+    </script>
+</body>
+</html>
