@@ -1,0 +1,858 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GDP Area Selector Demo</title>
+
+  <style>
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #111;
+    }
+
+    #viewport {
+      position: fixed;
+      inset: 0;
+      overflow: scroll;
+      background: #1e88e5;
+    }
+
+    #world {
+      position: relative;
+      width: 3000px;
+      height: 1800px;
+    }
+
+    canvas {
+      position: absolute;
+      left: 0;
+      top: 0;
+      display: block;
+      image-rendering: pixelated;
+    }
+
+    #baseCanvas {
+      z-index: 1;
+    }
+
+    #selectionCanvas {
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    #inputLayer {
+      z-index: 3;
+      cursor: none;
+      background: transparent;
+    }
+
+    #toolbar {
+      position: fixed;
+      left: 12px;
+      top: 12px;
+      z-index: 20;
+      width: 310px;
+      box-sizing: border-box;
+      background: rgba(255, 255, 255, 0.94);
+      border-radius: 14px;
+      padding: 14px;
+      box-shadow: 0 6px 24px rgba(0,0,0,0.25);
+      color: #222;
+      user-select: none;
+    }
+
+    #toolbar h1 {
+      font-size: 18px;
+      margin: 0 0 10px;
+    }
+
+    .row {
+      margin: 10px 0;
+    }
+
+    label {
+      font-weight: 700;
+      font-size: 14px;
+    }
+
+    input[type="range"] {
+      width: 100%;
+    }
+
+    button {
+      padding: 9px 10px;
+      border: 0;
+      border-radius: 9px;
+      background: #222;
+      color: white;
+      font-weight: 700;
+      cursor: pointer;
+      margin-right: 6px;
+      margin-top: 6px;
+    }
+
+    button.secondary {
+      background: #666;
+    }
+
+    button.danger {
+      background: #b42318;
+    }
+
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    #areaText {
+      font-weight: 800;
+      font-size: 16px;
+    }
+
+    #statusText {
+      font-size: 13px;
+      color: #555;
+      line-height: 1.5;
+    }
+
+    #brushCursor {
+      position: fixed;
+      left: 0;
+      top: 0;
+      z-index: 30;
+      pointer-events: none;
+      border: 2px solid rgba(255,255,255,0.95);
+      box-shadow: 0 0 0 1px rgba(0,0,0,0.8);
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      display: none;
+    }
+
+    .warning {
+      color: #b42318;
+      font-weight: 800;
+    }
+
+    .ok {
+      color: #146c2e;
+      font-weight: 800;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="viewport">
+    <div id="world">
+      <canvas id="baseCanvas"></canvas>
+      <canvas id="selectionCanvas"></canvas>
+      <canvas id="inputLayer"></canvas>
+    </div>
+  </div>
+
+  <div id="toolbar">
+    <h1>地域選択</h1>
+
+    <div class="row">
+      <label>
+        円サイズ: <span id="brushLabel">40</span>px
+      </label>
+      <input id="brushSlider" type="range" min="4" max="160" value="40">
+    </div>
+
+    <div class="row">
+      <div id="areaText">選択面積: 0 km²</div>
+      <div id="statusText">左ドラッグで選択。右ドラッグまたは Shift + ドラッグで削除。</div>
+    </div>
+
+    <div class="row">
+      <button id="confirmBtn" disabled>確定</button>
+      <button id="undoBtn" class="secondary" disabled>戻す</button>
+      <button id="clearBtn" class="danger">全消し</button>
+    </div>
+
+    <div class="row" id="limitText"></div>
+  </div>
+
+  <div id="brushCursor"></div>
+
+  <script>
+    /*
+      ============================================================
+      設定
+      ============================================================
+    */
+
+    const WORLD_W = 3000;
+    const WORLD_H = 1800;
+
+    // Webメルカトルの最大緯度
+    const MAX_MERCATOR_LAT = 85.05112878;
+
+    // 地球半径 km
+    const EARTH_R_KM = 6371.0088;
+
+    // 面積上限
+    const AREA_LIMIT_KM2 = 50000;
+
+    // 色
+    const SEA = { r: 30, g: 136, b: 229, a: 255 };
+    const LAND = { r: 46, g: 204, b: 113, a: 255 };
+    const SELECTED = { r: 255, g: 90, b: 170, a: 210 };
+
+    /*
+      ============================================================
+      要素
+      ============================================================
+    */
+
+    const viewport = document.getElementById("viewport");
+    const world = document.getElementById("world");
+
+    const baseCanvas = document.getElementById("baseCanvas");
+    const selectionCanvas = document.getElementById("selectionCanvas");
+    const inputLayer = document.getElementById("inputLayer");
+
+    const baseCtx = baseCanvas.getContext("2d", { willReadFrequently: true });
+    const selectionCtx = selectionCanvas.getContext("2d", { willReadFrequently: true });
+    const inputCtx = inputLayer.getContext("2d");
+
+    const brushSlider = document.getElementById("brushSlider");
+    const brushLabel = document.getElementById("brushLabel");
+    const brushCursor = document.getElementById("brushCursor");
+
+    const areaText = document.getElementById("areaText");
+    const statusText = document.getElementById("statusText");
+    const limitText = document.getElementById("limitText");
+
+    const confirmBtn = document.getElementById("confirmBtn");
+    const undoBtn = document.getElementById("undoBtn");
+    const clearBtn = document.getElementById("clearBtn");
+
+    /*
+      ============================================================
+      状態
+      ============================================================
+    */
+
+    let brushRadius = Number(brushSlider.value);
+    let isDrawing = false;
+    let eraseMode = false;
+
+    let mouseX = 0;
+    let mouseY = 0;
+
+    // 1なら陸地、0なら海
+    const landMask = new Uint8Array(WORLD_W * WORLD_H);
+
+    // 1なら選択済み
+    const selectedMask = new Uint8Array(WORLD_W * WORLD_H);
+
+    // y行の1pxあたり面積 km²
+    const areaPerRow = new Float64Array(WORLD_H);
+
+    let selectedAreaKm2 = 0;
+
+    // undo用
+    const undoStack = [];
+    let currentStrokeChanges = null;
+
+    /*
+      ============================================================
+      初期化
+      ============================================================
+    */
+
+    init();
+
+    function init() {
+      setupCanvasSize();
+      buildAreaPerRow();
+      buildDemoMap();
+      bindEvents();
+      updateBrushCursorSize();
+      updateUI();
+    }
+
+    function setupCanvasSize() {
+      for (const c of [baseCanvas, selectionCanvas, inputLayer]) {
+        c.width = WORLD_W;
+        c.height = WORLD_H;
+        c.style.width = WORLD_W + "px";
+        c.style.height = WORLD_H + "px";
+      }
+
+      world.style.width = WORLD_W + "px";
+      world.style.height = WORLD_H + "px";
+    }
+
+    /*
+      ============================================================
+      面積計算
+      Webメルカトル画像の各行について、1ピクセルの実面積を近似
+      ============================================================
+    */
+
+    function buildAreaPerRow() {
+      const dLon = 2 * Math.PI / WORLD_W;
+
+      for (let y = 0; y < WORLD_H; y++) {
+        const latTop = mercatorYToLatRad(y / WORLD_H);
+        const latBottom = mercatorYToLatRad((y + 1) / WORLD_H);
+
+        const stripAreaPerPixel =
+          EARTH_R_KM * EARTH_R_KM *
+          dLon *
+          Math.abs(Math.sin(latTop) - Math.sin(latBottom));
+
+        areaPerRow[y] = stripAreaPerPixel;
+      }
+    }
+
+    function mercatorYToLatRad(y01) {
+      // y01: 0が北端、1が南端
+      const n = Math.PI - 2 * Math.PI * y01;
+      return Math.atan(Math.sinh(n));
+    }
+
+    function lonLatToPixel(lon, lat) {
+      const x = (lon + 180) / 360 * WORLD_W;
+
+      const latRad = lat * Math.PI / 180;
+      const mercN = Math.log(Math.tan(Math.PI / 4 + latRad / 2));
+      const y = (Math.PI - mercN) / (2 * Math.PI) * WORLD_H;
+
+      return { x, y };
+    }
+
+    /*
+      ============================================================
+      仮地図生成
+      実運用ではここを PNG 読み込みに変える。
+      陸地は完全な緑、海は完全な青。
+      ============================================================
+    */
+
+    function buildDemoMap() {
+      const img = baseCtx.createImageData(WORLD_W, WORLD_H);
+      const data = img.data;
+
+      const continents = [
+        // lon, lat, rx, ry
+        { lon: -100, lat: 45, rx: 520, ry: 320 },  // 北米
+        { lon: -60, lat: -20, rx: 230, ry: 430 },  // 南米
+        { lon: 55, lat: 48, rx: 850, ry: 300 },    // ユーラシア
+        { lon: 20, lat: 5, rx: 310, ry: 430 },     // アフリカ
+        { lon: 135, lat: -25, rx: 230, ry: 150 },  // オーストラリア
+        { lon: -42, lat: 72, rx: 160, ry: 90 },    // グリーンランド
+        { lon: 138, lat: 37, rx: 55, ry: 95 },     // 日本っぽい島
+        { lon: 105, lat: 10, rx: 160, ry: 130 },   // 東南アジア
+        { lon: 75, lat: 20, rx: 190, ry: 180 }     // インド周辺
+      ];
+
+      const ellipses = continents.map(c => {
+        const p = lonLatToPixel(c.lon, c.lat);
+        return { cx: p.x, cy: p.y, rx: c.rx, ry: c.ry };
+      });
+
+      for (let y = 0; y < WORLD_H; y++) {
+        for (let x = 0; x < WORLD_W; x++) {
+          const i = y * WORLD_W + x;
+          const p = i * 4;
+
+          const land = isInsideAnyEllipse(x, y, ellipses);
+          landMask[i] = land ? 1 : 0;
+
+          const color = land ? LAND : SEA;
+
+          data[p + 0] = color.r;
+          data[p + 1] = color.g;
+          data[p + 2] = color.b;
+          data[p + 3] = color.a;
+        }
+      }
+
+      baseCtx.putImageData(img, 0, 0);
+      clearSelectionCanvas();
+
+      limitText.innerHTML =
+        `面積上限: <strong>${AREA_LIMIT_KM2.toLocaleString()} km²</strong>`;
+    }
+
+    function isInsideAnyEllipse(x, y, ellipses) {
+      for (const e of ellipses) {
+        const dx = (x - e.cx) / e.rx;
+        const dy = (y - e.cy) / e.ry;
+
+        if (dx * dx + dy * dy <= 1) {
+          return true;
+        }
+      }
+
+      return false;
+    }
+
+    /*
+      ============================================================
+      実地図PNGに差し替える場合の関数
+      必要になったら buildDemoMap() の代わりに呼ぶ。
+      PNGは陸=#2ecc71, 海=#1e88e5 の完全ベタ塗り推奨。
+      ============================================================
+
+    function loadMapPng(src) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+
+        img.onload = () => {
+          baseCtx.clearRect(0, 0, WORLD_W, WORLD_H);
+          baseCtx.drawImage(img, 0, 0, WORLD_W, WORLD_H);
+
+          const image = baseCtx.getImageData(0, 0, WORLD_W, WORLD_H);
+          const data = image.data;
+
+          for (let i = 0; i < WORLD_W * WORLD_H; i++) {
+            const p = i * 4;
+            const r = data[p + 0];
+            const g = data[p + 1];
+            const b = data[p + 2];
+
+            landMask[i] = (
+              r === LAND.r &&
+              g === LAND.g &&
+              b === LAND.b
+            ) ? 1 : 0;
+          }
+
+          clearSelectionCanvas();
+          resolve();
+        };
+
+        img.onerror = reject;
+        img.src = src;
+      });
+    }
+
+    */
+
+    /*
+      ============================================================
+      イベント
+      ============================================================
+    */
+
+    function bindEvents() {
+      brushSlider.addEventListener("input", () => {
+        brushRadius = Number(brushSlider.value);
+        brushLabel.textContent = String(brushRadius);
+        updateBrushCursorSize();
+      });
+
+      inputLayer.addEventListener("contextmenu", e => {
+        e.preventDefault();
+      });
+
+      inputLayer.addEventListener("pointerenter", e => {
+        brushCursor.style.display = "block";
+        updateMouse(e);
+        moveBrushCursor(e.clientX, e.clientY);
+      });
+
+      inputLayer.addEventListener("pointerleave", () => {
+        if (!isDrawing) {
+          brushCursor.style.display = "none";
+        }
+      });
+
+      inputLayer.addEventListener("pointerdown", e => {
+        e.preventDefault();
+
+        inputLayer.setPointerCapture(e.pointerId);
+
+        isDrawing = true;
+        eraseMode = e.button === 2 || e.shiftKey;
+        currentStrokeChanges = [];
+
+        updateMouse(e);
+        moveBrushCursor(e.clientX, e.clientY);
+        paintCircle(mouseX, mouseY, brushRadius, eraseMode);
+      });
+
+      inputLayer.addEventListener("pointermove", e => {
+        updateMouse(e);
+        moveBrushCursor(e.clientX, e.clientY);
+
+        if (isDrawing) {
+          const currentEraseMode = eraseMode || e.shiftKey;
+          paintCircle(mouseX, mouseY, brushRadius, currentEraseMode);
+        }
+      });
+
+      inputLayer.addEventListener("pointerup", e => {
+        isDrawing = false;
+        eraseMode = false;
+
+        if (currentStrokeChanges && currentStrokeChanges.length > 0) {
+          undoStack.push(currentStrokeChanges);
+          undoBtn.disabled = false;
+        }
+
+        currentStrokeChanges = null;
+      });
+
+      inputLayer.addEventListener("pointercancel", () => {
+        isDrawing = false;
+        eraseMode = false;
+        currentStrokeChanges = null;
+      });
+
+      window.addEventListener("keydown", e => {
+        if (e.key === "[") {
+          setBrushRadius(brushRadius - 4);
+        }
+
+        if (e.key === "]") {
+          setBrushRadius(brushRadius + 4);
+        }
+
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+          e.preventDefault();
+          undo();
+        }
+      });
+
+      clearBtn.addEventListener("click", clearAll);
+      undoBtn.addEventListener("click", undo);
+      confirmBtn.addEventListener("click", confirmSelection);
+    }
+
+    function getCanvasPoint(e) {
+      const rect = inputLayer.getBoundingClientRect();
+
+      return {
+        x: Math.floor(e.clientX - rect.left),
+        y: Math.floor(e.clientY - rect.top)
+      };
+    }
+
+    function updateMouse(e) {
+      const p = getCanvasPoint(e);
+      mouseX = p.x;
+      mouseY = p.y;
+    }
+
+    function moveBrushCursor(clientX, clientY) {
+      brushCursor.style.left = clientX + "px";
+      brushCursor.style.top = clientY + "px";
+    }
+
+    function updateBrushCursorSize() {
+      brushCursor.style.width = (brushRadius * 2) + "px";
+      brushCursor.style.height = (brushRadius * 2) + "px";
+    }
+
+    function setBrushRadius(value) {
+      brushRadius = Math.max(4, Math.min(160, value));
+      brushSlider.value = brushRadius;
+      brushLabel.textContent = String(brushRadius);
+      updateBrushCursorSize();
+    }
+
+    /*
+      ============================================================
+      選択処理
+      ============================================================
+    */
+
+    function paintCircle(cx, cy, radius, erase) {
+      const r2 = radius * radius;
+
+      const minX = Math.max(0, Math.floor(cx - radius));
+      const maxX = Math.min(WORLD_W - 1, Math.ceil(cx + radius));
+      const minY = Math.max(0, Math.floor(cy - radius));
+      const maxY = Math.min(WORLD_H - 1, Math.ceil(cy + radius));
+
+      let changed = false;
+
+      for (let y = minY; y <= maxY; y++) {
+        const dy = y - cy;
+        const rowStart = y * WORLD_W;
+
+        for (let x = minX; x <= maxX; x++) {
+          const dx = x - cx;
+
+          if (dx * dx + dy * dy > r2) continue;
+
+          const i = rowStart + x;
+
+          // 海は選択不可
+          if (landMask[i] !== 1) continue;
+
+          const oldValue = selectedMask[i];
+          const newValue = erase ? 0 : 1;
+
+          if (oldValue === newValue) continue;
+
+          selectedMask[i] = newValue;
+          changed = true;
+
+          if (currentStrokeChanges) {
+            currentStrokeChanges.push({ i, oldValue });
+          }
+
+          if (newValue === 1) {
+            selectedAreaKm2 += areaPerRow[y];
+          } else {
+            selectedAreaKm2 -= areaPerRow[y];
+          }
+        }
+      }
+
+      if (changed) {
+        redrawSelectionPatch(minX, minY, maxX, maxY);
+        updateUI();
+      }
+    }
+
+    function redrawSelectionPatch(minX, minY, maxX, maxY) {
+      const w = maxX - minX + 1;
+      const h = maxY - minY + 1;
+
+      const image = selectionCtx.createImageData(w, h);
+      const data = image.data;
+
+      for (let py = 0; py < h; py++) {
+        const y = minY + py;
+        const rowStart = y * WORLD_W;
+
+        for (let px = 0; px < w; px++) {
+          const x = minX + px;
+          const worldIndex = rowStart + x;
+          const p = (py * w + px) * 4;
+
+          if (selectedMask[worldIndex] === 1) {
+            data[p + 0] = SELECTED.r;
+            data[p + 1] = SELECTED.g;
+            data[p + 2] = SELECTED.b;
+            data[p + 3] = SELECTED.a;
+          } else {
+            data[p + 0] = 0;
+            data[p + 1] = 0;
+            data[p + 2] = 0;
+            data[p + 3] = 0;
+          }
+        }
+      }
+
+      selectionCtx.putImageData(image, minX, minY);
+    }
+
+    function clearSelectionCanvas() {
+      selectionCtx.clearRect(0, 0, WORLD_W, WORLD_H);
+    }
+
+    function clearAll() {
+      selectedMask.fill(0);
+      selectedAreaKm2 = 0;
+      undoStack.length = 0;
+      undoBtn.disabled = true;
+      clearSelectionCanvas();
+      updateUI();
+    }
+
+    function undo() {
+      const changes = undoStack.pop();
+      if (!changes) return;
+
+      // 逆順に戻す
+      for (let k = changes.length - 1; k >= 0; k--) {
+        const { i, oldValue } = changes[k];
+        const current = selectedMask[i];
+
+        if (current === oldValue) continue;
+
+        selectedMask[i] = oldValue;
+
+        const y = Math.floor(i / WORLD_W);
+
+        if (oldValue === 1) {
+          selectedAreaKm2 += areaPerRow[y];
+        } else {
+          selectedAreaKm2 -= areaPerRow[y];
+        }
+      }
+
+      // 簡単のため、undo時は全選択レイヤーを再描画
+      redrawWholeSelection();
+      updateUI();
+
+      undoBtn.disabled = undoStack.length === 0;
+    }
+
+    function redrawWholeSelection() {
+      const image = selectionCtx.createImageData(WORLD_W, WORLD_H);
+      const data = image.data;
+
+      for (let i = 0; i < selectedMask.length; i++) {
+        if (selectedMask[i] !== 1) continue;
+
+        const p = i * 4;
+        data[p + 0] = SELECTED.r;
+        data[p + 1] = SELECTED.g;
+        data[p + 2] = SELECTED.b;
+        data[p + 3] = SELECTED.a;
+      }
+
+      selectionCtx.putImageData(image, 0, 0);
+    }
+
+    /*
+      ============================================================
+      UI
+      ============================================================
+    */
+
+    function updateUI() {
+      if (selectedAreaKm2 < 0.0001) {
+        selectedAreaKm2 = 0;
+      }
+
+      const rounded = Math.round(selectedAreaKm2);
+
+      areaText.textContent =
+        `選択面積: ${rounded.toLocaleString()} km²`;
+
+      if (selectedAreaKm2 === 0) {
+        statusText.innerHTML =
+          `左ドラッグで選択。右ドラッグまたは Shift + ドラッグで削除。`;
+        confirmBtn.disabled = true;
+        return;
+      }
+
+      if (selectedAreaKm2 > AREA_LIMIT_KM2) {
+        statusText.innerHTML =
+          `<span class="warning">面積上限を超えています。確定できません。</span>`;
+        confirmBtn.disabled = true;
+      } else {
+        statusText.innerHTML =
+          `<span class="ok">確定可能です。</span>`;
+        confirmBtn.disabled = false;
+      }
+    }
+
+    function confirmSelection() {
+      if (selectedAreaKm2 <= 0 || selectedAreaKm2 > AREA_LIMIT_KM2) {
+        return;
+      }
+
+      const payload = makeSelectionPayload();
+
+      console.log("送信用データ例:", payload);
+
+      alert(
+        "確定しました。\n" +
+        `選択面積: ${Math.round(selectedAreaKm2).toLocaleString()} km²\n\n` +
+        "今はデモなのでGDP計算は未接続です。\n" +
+        "送信用データは console に出しています。"
+      );
+    }
+
+    /*
+      ============================================================
+      サーバー送信用データ
+      ここでは単純に選択済みピクセルのbboxとRLEを作る。
+      本番ではこれをfetchで送る。
+      ============================================================
+    */
+
+    function makeSelectionPayload() {
+      const bbox = getSelectionBBox();
+
+      if (!bbox) {
+        return null;
+      }
+
+      const rle = buildRLE(bbox);
+
+      return {
+        version: 1,
+        width: WORLD_W,
+        height: WORLD_H,
+        bbox,
+        areaKm2: selectedAreaKm2,
+        encoding: "rle-selected-mask",
+        data: rle
+      };
+    }
+
+    function getSelectionBBox() {
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+
+      for (let y = 0; y < WORLD_H; y++) {
+        const rowStart = y * WORLD_W;
+
+        for (let x = 0; x < WORLD_W; x++) {
+          const i = rowStart + x;
+
+          if (selectedMask[i] !== 1) continue;
+
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+
+      if (minX === Infinity) {
+        return null;
+      }
+
+      return { minX, minY, maxX, maxY };
+    }
+
+    function buildRLE(bbox) {
+      const result = [];
+
+      let currentValue = 0;
+      let currentLength = 0;
+      let initialized = false;
+
+      for (let y = bbox.minY; y <= bbox.maxY; y++) {
+        const rowStart = y * WORLD_W;
+
+        for (let x = bbox.minX; x <= bbox.maxX; x++) {
+          const i = rowStart + x;
+          const value = selectedMask[i];
+
+          if (!initialized) {
+            currentValue = value;
+            currentLength = 1;
+            initialized = true;
+            continue;
+          }
+
+          if (value === currentValue) {
+            currentLength++;
+          } else {
+            result.push(currentValue, currentLength);
+            currentValue = value;
+            currentLength = 1;
+          }
+        }
+      }
+
+      if (initialized) {
+        result.push(currentValue, currentLength);
+      }
+
+      return result;
+    }
+  </script>
+</body>
+</html>
