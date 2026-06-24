@@ -1,857 +1,1039 @@
 <!doctype html>
 <html lang="ja">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>GDP Area Selector Demo</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>World GDP Guesser</title>
 
   <style>
-    html, body {
-      margin: 0;
-      width: 100%;
-      height: 100%;
-      overflow: hidden;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #111;
+    :root {
+      --bar-size: 58px;
+      --panel-width: 320px;
+      --ui-bg: rgba(15, 18, 25, 0.88);
+      --ui-border: rgba(255, 255, 255, 0.14);
+      --text: #f5f7fb;
+      --muted: #aab2c0;
+      --pink: rgba(255, 80, 155, 0.62);
+      --danger: #ff5c74;
+      --ok: #5cff9d;
     }
 
-    #viewport {
-      position: fixed;
-      inset: 0;
-      overflow: scroll;
-      background: #1e88e5;
-    }
-
-    #world {
-      position: relative;
-      width: 3000px;
-      height: 1800px;
-    }
-
-    canvas {
-      position: absolute;
-      left: 0;
-      top: 0;
-      display: block;
-      image-rendering: pixelated;
-    }
-
-    #baseCanvas {
-      z-index: 1;
-    }
-
-    #selectionCanvas {
-      z-index: 2;
-      pointer-events: none;
-    }
-
-    #inputLayer {
-      z-index: 3;
-      cursor: none;
-      background: transparent;
-    }
-
-    #toolbar {
-      position: fixed;
-      left: 12px;
-      top: 12px;
-      z-index: 20;
-      width: 310px;
+    * {
       box-sizing: border-box;
-      background: rgba(255, 255, 255, 0.94);
-      border-radius: 14px;
-      padding: 14px;
-      box-shadow: 0 6px 24px rgba(0,0,0,0.25);
-      color: #222;
+    }
+
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #0b1020;
+      color: var(--text);
+      font-family:
+        system-ui,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
       user-select: none;
     }
 
-    #toolbar h1 {
-      font-size: 18px;
+    #app {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      background: #10243a;
+    }
+
+    #stage {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: calc(100vw - var(--bar-size));
+      height: calc(100vh - var(--bar-size));
+      overflow: hidden;
+      background: #143451;
+      touch-action: none;
+      cursor: crosshair;
+    }
+
+    #mainCanvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      background: #143451;
+    }
+
+    #uiPanel {
+      position: absolute;
+      left: 14px;
+      top: 14px;
+      width: var(--panel-width);
+      padding: 14px;
+      background: var(--ui-bg);
+      border: 1px solid var(--ui-border);
+      border-radius: 16px;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.32);
+      backdrop-filter: blur(8px);
+      pointer-events: auto;
+    }
+
+    h1 {
       margin: 0 0 10px;
+      font-size: 18px;
+      line-height: 1.25;
     }
 
     .row {
-      margin: 10px 0;
+      margin-top: 12px;
     }
 
-    label {
-      font-weight: 700;
-      font-size: 14px;
+    .labelLine {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .value {
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
     }
 
     input[type="range"] {
       width: 100%;
+      accent-color: #ff509b;
+    }
+
+    .buttons {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 12px;
     }
 
     button {
-      padding: 9px 10px;
       border: 0;
-      border-radius: 9px;
-      background: #222;
-      color: white;
+      border-radius: 10px;
+      padding: 10px 10px;
+      background: #263145;
+      color: var(--text);
       font-weight: 700;
       cursor: pointer;
-      margin-right: 6px;
-      margin-top: 6px;
     }
 
-    button.secondary {
-      background: #666;
-    }
-
-    button.danger {
-      background: #b42318;
+    button:hover {
+      background: #34415a;
     }
 
     button:disabled {
-      opacity: 0.45;
       cursor: not-allowed;
+      opacity: 0.48;
     }
 
-    #areaText {
-      font-weight: 800;
-      font-size: 16px;
+    #confirmBtn {
+      background: #ff509b;
+      color: #150510;
     }
 
-    #statusText {
+    #confirmBtn:disabled {
+      background: #5a3549;
+      color: #d3a4bb;
+    }
+
+    .statBox {
+      margin-top: 12px;
+      padding: 10px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.07);
+      border: 1px solid rgba(255, 255, 255, 0.08);
       font-size: 13px;
-      color: #555;
-      line-height: 1.5;
-    }
-
-    #brushCursor {
-      position: fixed;
-      left: 0;
-      top: 0;
-      z-index: 30;
-      pointer-events: none;
-      border: 2px solid rgba(255,255,255,0.95);
-      box-shadow: 0 0 0 1px rgba(0,0,0,0.8);
-      border-radius: 50%;
-      transform: translate(-50%, -50%);
-      display: none;
-    }
-
-    .warning {
-      color: #b42318;
-      font-weight: 800;
+      line-height: 1.55;
     }
 
     .ok {
-      color: #146c2e;
-      font-weight: 800;
+      color: var(--ok);
+      font-weight: 700;
+    }
+
+    .danger {
+      color: var(--danger);
+      font-weight: 700;
+    }
+
+    .small {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    #xScrollWrap {
+      position: absolute;
+      left: 0;
+      bottom: 0;
+      width: calc(100vw - var(--bar-size));
+      height: var(--bar-size);
+      display: flex;
+      align-items: center;
+      padding: 0 18px;
+      background: rgba(8, 11, 18, 0.94);
+      border-top: 1px solid var(--ui-border);
+    }
+
+    #yScrollWrap {
+      position: absolute;
+      right: 0;
+      top: 0;
+      width: var(--bar-size);
+      height: calc(100vh - var(--bar-size));
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: rgba(8, 11, 18, 0.94);
+      border-left: 1px solid var(--ui-border);
+    }
+
+    #xBar {
+      width: 100%;
+      height: 36px;
+    }
+
+    #yBar {
+      width: calc(100vh - var(--bar-size) - 36px);
+      height: 36px;
+      transform: rotate(90deg);
+      transform-origin: center;
+    }
+
+    #corner {
+      position: absolute;
+      right: 0;
+      bottom: 0;
+      width: var(--bar-size);
+      height: var(--bar-size);
+      background: rgba(8, 11, 18, 0.98);
+      border-left: 1px solid var(--ui-border);
+      border-top: 1px solid var(--ui-border);
+    }
+
+    #loading {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      background: #0b1020;
+      z-index: 30;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    #loading.hidden {
+      display: none;
     }
   </style>
 </head>
 
 <body>
-  <div id="viewport">
-    <div id="world">
-      <canvas id="baseCanvas"></canvas>
-      <canvas id="selectionCanvas"></canvas>
-      <canvas id="inputLayer"></canvas>
+  <div id="app">
+    <div id="loading">地図を読み込み中...</div>
+
+    <div id="stage">
+      <canvas id="mainCanvas"></canvas>
+
+      <section id="uiPanel">
+        <h1>World GDP Guesser</h1>
+
+        <div class="row">
+          <div class="labelLine">
+            <span>ペンサイズ</span>
+            <span class="value"><span id="brushValue">24</span> px</span>
+          </div>
+          <input id="brushSize" type="range" min="3" max="120" value="24">
+        </div>
+
+        <div class="row">
+          <div class="labelLine">
+            <span>ズーム</span>
+            <span class="value"><span id="zoomValue">100</span>%</span>
+          </div>
+          <input id="zoomSlider" type="range" min="100" max="600" value="100">
+        </div>
+
+        <div class="buttons">
+          <button id="clearBtn">リセット</button>
+          <button id="undoBtn">1手戻す</button>
+          <button id="confirmBtn">確定</button>
+          <button id="fitBtn">全体表示</button>
+        </div>
+
+        <div class="statBox">
+          <div>選択面積: <span class="value" id="areaText">0</span> km²</div>
+          <div>上限: <span class="value" id="limitText">50,000</span> km²</div>
+          <div>状態: <span id="statusText" class="ok">確定可能</span></div>
+          <div id="resultText" class="small"></div>
+        </div>
+
+        <div class="small">
+          地図上ドラッグで陸地だけを選択。移動は下バー・右バーで操作。
+        </div>
+      </section>
     </div>
+
+    <div id="xScrollWrap">
+      <input id="xBar" type="range" min="0" max="0" value="0">
+    </div>
+
+    <div id="yScrollWrap">
+      <input id="yBar" type="range" min="0" max="0" value="0">
+    </div>
+
+    <div id="corner"></div>
   </div>
-
-  <div id="toolbar">
-    <h1>地域選択</h1>
-
-    <div class="row">
-      <label>
-        円サイズ: <span id="brushLabel">40</span>px
-      </label>
-      <input id="brushSlider" type="range" min="4" max="160" value="40">
-    </div>
-
-    <div class="row">
-      <div id="areaText">選択面積: 0 km²</div>
-      <div id="statusText">左ドラッグで選択。右ドラッグまたは Shift + ドラッグで削除。</div>
-    </div>
-
-    <div class="row">
-      <button id="confirmBtn" disabled>確定</button>
-      <button id="undoBtn" class="secondary" disabled>戻す</button>
-      <button id="clearBtn" class="danger">全消し</button>
-    </div>
-
-    <div class="row" id="limitText"></div>
-  </div>
-
-  <div id="brushCursor"></div>
 
   <script>
-    /*
-      ============================================================
-      設定
-      ============================================================
-    */
+    "use strict";
 
-    const WORLD_W = 3000;
-    const WORLD_H = 1800;
+    /******************************************************************
+     * 設定
+     ******************************************************************/
 
-    // Webメルカトルの最大緯度
-    const MAX_MERCATOR_LAT = 85.05112878;
+    const CONFIG = {
+      displayMapUrl: "./map1_display_7200.png",
+      hiddenMapUrl: "./map2_hidden_7200.png",
 
-    // 地球半径 km
-    const EARTH_R_KM = 6371.0088;
+      // 面積上限
+      areaLimitKm2: 50_000,
 
-    // 面積上限
-    const AREA_LIMIT_KM2 = 50000;
+      // map画像の投影法。
+      // "auto": 横:縦が約2:1なら equirectangular、それ以外なら mercator
+      // "equirectangular": 経度緯度の正距円筒図法
+      // "mercator": Webメルカトル想定
+      projection: "auto",
 
-    // 色
-    const SEA = { r: 30, g: 136, b: 229, a: 255 };
-    const LAND = { r: 46, g: 204, b: 113, a: 255 };
-    const SELECTED = { r: 255, g: 90, b: 170, a: 210 };
+      // hidden画像で海とみなす色。
+      // 陸地判定は「この色に近ければ海、それ以外は陸」としている。
+      // map2_hidden が「海=青、陸=その他」ならこのままでOK。
+      seaColor: { r: 0, g: 0, b: 255 },
+      seaTolerance: 10,
 
-    /*
-      ============================================================
-      要素
-      ============================================================
-    */
+      // 選択表示色
+      selectionColor: "rgba(255, 80, 155, 0.62)",
 
-    const viewport = document.getElementById("viewport");
-    const world = document.getElementById("world");
+      // 選択が重い場合は 1, 2, 3 あたりにする。
+      // 1なら全ピクセル判定。2なら2px刻みの近似。
+      paintStep: 1,
 
-    const baseCanvas = document.getElementById("baseCanvas");
-    const selectionCanvas = document.getElementById("selectionCanvas");
-    const inputLayer = document.getElementById("inputLayer");
+      // GDPスコアの表示倍率。
+      // scoreFromHiddenPixel() の返り値に掛ける。
+      scoreScale: 1
+    };
 
-    const baseCtx = baseCanvas.getContext("2d", { willReadFrequently: true });
-    const selectionCtx = selectionCanvas.getContext("2d", { willReadFrequently: true });
-    const inputCtx = inputLayer.getContext("2d");
+    const EARTH_RADIUS_KM = 6371.0072;
 
-    const brushSlider = document.getElementById("brushSlider");
-    const brushLabel = document.getElementById("brushLabel");
-    const brushCursor = document.getElementById("brushCursor");
+    /******************************************************************
+     * DOM
+     ******************************************************************/
 
-    const areaText = document.getElementById("areaText");
-    const statusText = document.getElementById("statusText");
-    const limitText = document.getElementById("limitText");
+    const stage = document.getElementById("stage");
+    const canvas = document.getElementById("mainCanvas");
+    const ctx = canvas.getContext("2d", { alpha: false });
 
-    const confirmBtn = document.getElementById("confirmBtn");
-    const undoBtn = document.getElementById("undoBtn");
+    const loadingEl = document.getElementById("loading");
+
+    const brushSizeEl = document.getElementById("brushSize");
+    const brushValueEl = document.getElementById("brushValue");
+
+    const zoomSliderEl = document.getElementById("zoomSlider");
+    const zoomValueEl = document.getElementById("zoomValue");
+
+    const xBarEl = document.getElementById("xBar");
+    const yBarEl = document.getElementById("yBar");
+
+    const areaTextEl = document.getElementById("areaText");
+    const limitTextEl = document.getElementById("limitText");
+    const statusTextEl = document.getElementById("statusText");
+    const resultTextEl = document.getElementById("resultText");
+
     const clearBtn = document.getElementById("clearBtn");
+    const undoBtn = document.getElementById("undoBtn");
+    const confirmBtn = document.getElementById("confirmBtn");
+    const fitBtn = document.getElementById("fitBtn");
 
-    /*
-      ============================================================
-      状態
-      ============================================================
-    */
+    /******************************************************************
+     * 状態
+     ******************************************************************/
 
-    let brushRadius = Number(brushSlider.value);
-    let isDrawing = false;
-    let eraseMode = false;
+    const state = {
+      displayImg: null,
+      hiddenImg: null,
 
-    let mouseX = 0;
-    let mouseY = 0;
+      mapW: 0,
+      mapH: 0,
 
-    // 1なら陸地、0なら海
-    const landMask = new Uint8Array(WORLD_W * WORLD_H);
+      dpr: 1,
+      viewW: 0,
+      viewH: 0,
 
-    // 1なら選択済み
-    const selectedMask = new Uint8Array(WORLD_W * WORLD_H);
+      zoom: 1,
+      offsetX: 0,
+      offsetY: 0,
 
-    // y行の1pxあたり面積 km²
-    const areaPerRow = new Float64Array(WORLD_H);
+      brushRadius: Number(brushSizeEl.value),
 
-    let selectedAreaKm2 = 0;
+      isDrawing: false,
+      lastScreenX: null,
+      lastScreenY: null,
 
-    // undo用
-    const undoStack = [];
-    let currentStrokeChanges = null;
+      // hidden画像のRGBA
+      hiddenData: null,
 
-    /*
-      ============================================================
-      初期化
-      ============================================================
-    */
+      // 選択済みフラグ。1なら選択済み。
+      selected: null,
 
-    init();
+      // 行ごとの1ピクセル面積 km²
+      rowAreaKm2: null,
 
-    function init() {
-      setupCanvasSize();
-      buildAreaPerRow();
-      buildDemoMap();
+      // ピンク表示用オフスクリーンCanvas
+      overlayCanvas: document.createElement("canvas"),
+      overlayCtx: null,
+
+      selectedAreaKm2: 0,
+      selectedScore: 0,
+
+      // undo用。1ストロークで新規選択されたピクセルだけ保存。
+      currentStrokePixels: [],
+      undoStack: [],
+
+      projectionResolved: "equirectangular"
+    };
+
+    state.overlayCtx = state.overlayCanvas.getContext("2d");
+
+    /******************************************************************
+     * 起動
+     ******************************************************************/
+
+    main().catch(err => {
+      console.error(err);
+      loadingEl.textContent = "読み込みに失敗しました。Consoleを確認してください。";
+    });
+
+    async function main() {
+      limitTextEl.textContent = formatNumber(CONFIG.areaLimitKm2);
+
+      const [displayImg, hiddenImg] = await Promise.all([
+        loadImage(CONFIG.displayMapUrl),
+        loadImage(CONFIG.hiddenMapUrl)
+      ]);
+
+      if (displayImg.naturalWidth !== hiddenImg.naturalWidth ||
+          displayImg.naturalHeight !== hiddenImg.naturalHeight) {
+        throw new Error("map1_display_7200.png と map2_hidden_7200.png のサイズが一致していません。");
+      }
+
+      state.displayImg = displayImg;
+      state.hiddenImg = hiddenImg;
+      state.mapW = displayImg.naturalWidth;
+      state.mapH = displayImg.naturalHeight;
+
+      state.projectionResolved = resolveProjection(state.mapW, state.mapH);
+
+      prepareHiddenData();
+      prepareSelectionOverlay();
+      prepareAreaWeights();
+
       bindEvents();
-      updateBrushCursorSize();
-      updateUI();
+
+      resizeCanvas();
+      fitToScreen();
+
+      loadingEl.classList.add("hidden");
+      render();
+      updateStats();
     }
 
-    function setupCanvasSize() {
-      for (const c of [baseCanvas, selectionCanvas, inputLayer]) {
-        c.width = WORLD_W;
-        c.height = WORLD_H;
-        c.style.width = WORLD_W + "px";
-        c.style.height = WORLD_H + "px";
-      }
-
-      world.style.width = WORLD_W + "px";
-      world.style.height = WORLD_H + "px";
-    }
-
-    /*
-      ============================================================
-      面積計算
-      Webメルカトル画像の各行について、1ピクセルの実面積を近似
-      ============================================================
-    */
-
-    function buildAreaPerRow() {
-      const dLon = 2 * Math.PI / WORLD_W;
-
-      for (let y = 0; y < WORLD_H; y++) {
-        const latTop = mercatorYToLatRad(y / WORLD_H);
-        const latBottom = mercatorYToLatRad((y + 1) / WORLD_H);
-
-        const stripAreaPerPixel =
-          EARTH_R_KM * EARTH_R_KM *
-          dLon *
-          Math.abs(Math.sin(latTop) - Math.sin(latBottom));
-
-        areaPerRow[y] = stripAreaPerPixel;
-      }
-    }
-
-    function mercatorYToLatRad(y01) {
-      // y01: 0が北端、1が南端
-      const n = Math.PI - 2 * Math.PI * y01;
-      return Math.atan(Math.sinh(n));
-    }
-
-    function lonLatToPixel(lon, lat) {
-      const x = (lon + 180) / 360 * WORLD_W;
-
-      const latRad = lat * Math.PI / 180;
-      const mercN = Math.log(Math.tan(Math.PI / 4 + latRad / 2));
-      const y = (Math.PI - mercN) / (2 * Math.PI) * WORLD_H;
-
-      return { x, y };
-    }
-
-    /*
-      ============================================================
-      仮地図生成
-      実運用ではここを PNG 読み込みに変える。
-      陸地は完全な緑、海は完全な青。
-      ============================================================
-    */
-
-    function buildDemoMap() {
-      const img = baseCtx.createImageData(WORLD_W, WORLD_H);
-      const data = img.data;
-
-      const continents = [
-        // lon, lat, rx, ry
-        { lon: -100, lat: 45, rx: 520, ry: 320 },  // 北米
-        { lon: -60, lat: -20, rx: 230, ry: 430 },  // 南米
-        { lon: 55, lat: 48, rx: 850, ry: 300 },    // ユーラシア
-        { lon: 20, lat: 5, rx: 310, ry: 430 },     // アフリカ
-        { lon: 135, lat: -25, rx: 230, ry: 150 },  // オーストラリア
-        { lon: -42, lat: 72, rx: 160, ry: 90 },    // グリーンランド
-        { lon: 138, lat: 37, rx: 55, ry: 95 },     // 日本っぽい島
-        { lon: 105, lat: 10, rx: 160, ry: 130 },   // 東南アジア
-        { lon: 75, lat: 20, rx: 190, ry: 180 }     // インド周辺
-      ];
-
-      const ellipses = continents.map(c => {
-        const p = lonLatToPixel(c.lon, c.lat);
-        return { cx: p.x, cy: p.y, rx: c.rx, ry: c.ry };
-      });
-
-      for (let y = 0; y < WORLD_H; y++) {
-        for (let x = 0; x < WORLD_W; x++) {
-          const i = y * WORLD_W + x;
-          const p = i * 4;
-
-          const land = isInsideAnyEllipse(x, y, ellipses);
-          landMask[i] = land ? 1 : 0;
-
-          const color = land ? LAND : SEA;
-
-          data[p + 0] = color.r;
-          data[p + 1] = color.g;
-          data[p + 2] = color.b;
-          data[p + 3] = color.a;
-        }
-      }
-
-      baseCtx.putImageData(img, 0, 0);
-      clearSelectionCanvas();
-
-      limitText.innerHTML =
-        `面積上限: <strong>${AREA_LIMIT_KM2.toLocaleString()} km²</strong>`;
-    }
-
-    function isInsideAnyEllipse(x, y, ellipses) {
-      for (const e of ellipses) {
-        const dx = (x - e.cx) / e.rx;
-        const dy = (y - e.cy) / e.ry;
-
-        if (dx * dx + dy * dy <= 1) {
-          return true;
-        }
-      }
-
-      return false;
-    }
-
-    /*
-      ============================================================
-      実地図PNGに差し替える場合の関数
-      必要になったら buildDemoMap() の代わりに呼ぶ。
-      PNGは陸=#2ecc71, 海=#1e88e5 の完全ベタ塗り推奨。
-      ============================================================
-
-    function loadMapPng(src) {
+    function loadImage(src) {
       return new Promise((resolve, reject) => {
         const img = new Image();
-
-        img.onload = () => {
-          baseCtx.clearRect(0, 0, WORLD_W, WORLD_H);
-          baseCtx.drawImage(img, 0, 0, WORLD_W, WORLD_H);
-
-          const image = baseCtx.getImageData(0, 0, WORLD_W, WORLD_H);
-          const data = image.data;
-
-          for (let i = 0; i < WORLD_W * WORLD_H; i++) {
-            const p = i * 4;
-            const r = data[p + 0];
-            const g = data[p + 1];
-            const b = data[p + 2];
-
-            landMask[i] = (
-              r === LAND.r &&
-              g === LAND.g &&
-              b === LAND.b
-            ) ? 1 : 0;
-          }
-
-          clearSelectionCanvas();
-          resolve();
-        };
-
-        img.onerror = reject;
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error(`${src} を読み込めませんでした。`));
         img.src = src;
       });
     }
 
-    */
+    function prepareHiddenData() {
+      const hiddenCanvas = document.createElement("canvas");
+      hiddenCanvas.width = state.mapW;
+      hiddenCanvas.height = state.mapH;
 
-    /*
-      ============================================================
-      イベント
-      ============================================================
-    */
+      const hiddenCtx = hiddenCanvas.getContext("2d", { willReadFrequently: true });
+      hiddenCtx.drawImage(state.hiddenImg, 0, 0);
+
+      state.hiddenData = hiddenCtx.getImageData(0, 0, state.mapW, state.mapH).data;
+      state.selected = new Uint8Array(state.mapW * state.mapH);
+    }
+
+    function prepareSelectionOverlay() {
+      state.overlayCanvas.width = state.mapW;
+      state.overlayCanvas.height = state.mapH;
+      state.overlayCtx.clearRect(0, 0, state.mapW, state.mapH);
+    }
+
+    function prepareAreaWeights() {
+      state.rowAreaKm2 = new Float64Array(state.mapH);
+
+      for (let y = 0; y < state.mapH; y++) {
+        state.rowAreaKm2[y] = calcPixelAreaAtRowKm2(y);
+      }
+    }
+
+    /******************************************************************
+     * 投影法と面積
+     ******************************************************************/
+
+    function resolveProjection(w, h) {
+      if (CONFIG.projection !== "auto") return CONFIG.projection;
+
+      const ratio = w / h;
+
+      if (Math.abs(ratio - 2) < 0.15) {
+        return "equirectangular";
+      }
+
+      return "mercator";
+    }
+
+    function calcPixelAreaAtRowKm2(y) {
+      const w = state.mapW;
+      const h = state.mapH;
+
+      const dLon = 2 * Math.PI / w;
+
+      let latTop;
+      let latBottom;
+
+      if (state.projectionResolved === "mercator") {
+        latTop = mercatorYToLatRad(y / h);
+        latBottom = mercatorYToLatRad((y + 1) / h);
+      } else {
+        latTop = Math.PI / 2 - Math.PI * (y / h);
+        latBottom = Math.PI / 2 - Math.PI * ((y + 1) / h);
+      }
+
+      return EARTH_RADIUS_KM * EARTH_RADIUS_KM *
+        dLon *
+        Math.abs(Math.sin(latTop) - Math.sin(latBottom));
+    }
+
+    function mercatorYToLatRad(t) {
+      return Math.atan(Math.sinh(Math.PI * (1 - 2 * t)));
+    }
+
+    /******************************************************************
+     * イベント
+     ******************************************************************/
 
     function bindEvents() {
-      brushSlider.addEventListener("input", () => {
-        brushRadius = Number(brushSlider.value);
-        brushLabel.textContent = String(brushRadius);
-        updateBrushCursorSize();
+      window.addEventListener("resize", () => {
+        resizeCanvas();
+        clampView();
+        updateScrollBars();
+        render();
       });
 
-      inputLayer.addEventListener("contextmenu", e => {
-        e.preventDefault();
+      brushSizeEl.addEventListener("input", () => {
+        state.brushRadius = Number(brushSizeEl.value);
+        brushValueEl.textContent = String(state.brushRadius);
       });
 
-      inputLayer.addEventListener("pointerenter", e => {
-        brushCursor.style.display = "block";
-        updateMouse(e);
-        moveBrushCursor(e.clientX, e.clientY);
+      zoomSliderEl.addEventListener("input", () => {
+        const oldZoom = state.zoom;
+        const newZoom = Number(zoomSliderEl.value) / 100;
+
+        const cx = state.offsetX + state.viewW / 2;
+        const cy = state.offsetY + state.viewH / 2;
+
+        const mapCx = cx / oldZoom;
+        const mapCy = cy / oldZoom;
+
+        state.zoom = newZoom;
+
+        state.offsetX = mapCx * state.zoom - state.viewW / 2;
+        state.offsetY = mapCy * state.zoom - state.viewH / 2;
+
+        clampView();
+        updateScrollBars();
+        render();
+        updateZoomText();
       });
 
-      inputLayer.addEventListener("pointerleave", () => {
-        if (!isDrawing) {
-          brushCursor.style.display = "none";
-        }
+      xBarEl.addEventListener("input", () => {
+        state.offsetX = Number(xBarEl.value);
+        render();
       });
 
-      inputLayer.addEventListener("pointerdown", e => {
-        e.preventDefault();
-
-        inputLayer.setPointerCapture(e.pointerId);
-
-        isDrawing = true;
-        eraseMode = e.button === 2 || e.shiftKey;
-        currentStrokeChanges = [];
-
-        updateMouse(e);
-        moveBrushCursor(e.clientX, e.clientY);
-        paintCircle(mouseX, mouseY, brushRadius, eraseMode);
+      yBarEl.addEventListener("input", () => {
+        state.offsetY = Number(yBarEl.value);
+        render();
       });
 
-      inputLayer.addEventListener("pointermove", e => {
-        updateMouse(e);
-        moveBrushCursor(e.clientX, e.clientY);
-
-        if (isDrawing) {
-          const currentEraseMode = eraseMode || e.shiftKey;
-          paintCircle(mouseX, mouseY, brushRadius, currentEraseMode);
-        }
-      });
-
-      inputLayer.addEventListener("pointerup", e => {
-        isDrawing = false;
-        eraseMode = false;
-
-        if (currentStrokeChanges && currentStrokeChanges.length > 0) {
-          undoStack.push(currentStrokeChanges);
-          undoBtn.disabled = false;
-        }
-
-        currentStrokeChanges = null;
-      });
-
-      inputLayer.addEventListener("pointercancel", () => {
-        isDrawing = false;
-        eraseMode = false;
-        currentStrokeChanges = null;
-      });
-
-      window.addEventListener("keydown", e => {
-        if (e.key === "[") {
-          setBrushRadius(brushRadius - 4);
-        }
-
-        if (e.key === "]") {
-          setBrushRadius(brushRadius + 4);
-        }
-
-        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
-          e.preventDefault();
-          undo();
-        }
-      });
-
-      clearBtn.addEventListener("click", clearAll);
-      undoBtn.addEventListener("click", undo);
+      clearBtn.addEventListener("click", clearSelection);
+      undoBtn.addEventListener("click", undoStroke);
       confirmBtn.addEventListener("click", confirmSelection);
+      fitBtn.addEventListener("click", () => {
+        fitToScreen();
+        render();
+      });
+
+      canvas.addEventListener("pointerdown", onPointerDown);
+      canvas.addEventListener("pointermove", onPointerMove);
+      canvas.addEventListener("pointerup", onPointerUp);
+      canvas.addEventListener("pointercancel", onPointerUp);
+      canvas.addEventListener("pointerleave", onPointerUp);
+
+      // ブラウザの右クリックメニューを防ぐ
+      canvas.addEventListener("contextmenu", e => e.preventDefault());
+    }
+
+    function onPointerDown(e) {
+      if (e.button !== 0) return;
+
+      canvas.setPointerCapture(e.pointerId);
+
+      state.isDrawing = true;
+      state.currentStrokePixels = [];
+
+      const p = getCanvasPoint(e);
+      state.lastScreenX = p.x;
+      state.lastScreenY = p.y;
+
+      paintLineScreen(p.x, p.y, p.x, p.y);
+      render();
+    }
+
+    function onPointerMove(e) {
+      if (!state.isDrawing) return;
+
+      const p = getCanvasPoint(e);
+
+      paintLineScreen(state.lastScreenX, state.lastScreenY, p.x, p.y);
+
+      state.lastScreenX = p.x;
+      state.lastScreenY = p.y;
+
+      render();
+    }
+
+    function onPointerUp() {
+      if (!state.isDrawing) return;
+
+      state.isDrawing = false;
+      state.lastScreenX = null;
+      state.lastScreenY = null;
+
+      if (state.currentStrokePixels.length > 0) {
+        state.undoStack.push(state.currentStrokePixels);
+      }
+
+      state.currentStrokePixels = [];
+      updateStats();
     }
 
     function getCanvasPoint(e) {
-      const rect = inputLayer.getBoundingClientRect();
+      const rect = canvas.getBoundingClientRect();
 
       return {
-        x: Math.floor(e.clientX - rect.left),
-        y: Math.floor(e.clientY - rect.top)
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top
       };
     }
 
-    function updateMouse(e) {
-      const p = getCanvasPoint(e);
-      mouseX = p.x;
-      mouseY = p.y;
+    /******************************************************************
+     * 描画・選択
+     ******************************************************************/
+
+    function paintLineScreen(x1, y1, x2, y2) {
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      const dist = Math.hypot(dx, dy);
+
+      const step = Math.max(1, state.brushRadius * 0.45);
+      const n = Math.max(1, Math.ceil(dist / step));
+
+      for (let i = 0; i <= n; i++) {
+        const t = i / n;
+        const sx = x1 + dx * t;
+        const sy = y1 + dy * t;
+
+        const map = screenToMap(sx, sy);
+        paintCircleMap(map.x, map.y, state.brushRadius / state.zoom);
+      }
+
+      updateStats();
     }
 
-    function moveBrushCursor(clientX, clientY) {
-      brushCursor.style.left = clientX + "px";
-      brushCursor.style.top = clientY + "px";
-    }
-
-    function updateBrushCursorSize() {
-      brushCursor.style.width = (brushRadius * 2) + "px";
-      brushCursor.style.height = (brushRadius * 2) + "px";
-    }
-
-    function setBrushRadius(value) {
-      brushRadius = Math.max(4, Math.min(160, value));
-      brushSlider.value = brushRadius;
-      brushLabel.textContent = String(brushRadius);
-      updateBrushCursorSize();
-    }
-
-    /*
-      ============================================================
-      選択処理
-      ============================================================
-    */
-
-    function paintCircle(cx, cy, radius, erase) {
-      const r2 = radius * radius;
+    function paintCircleMap(cx, cy, radius) {
+      const step = Math.max(1, CONFIG.paintStep);
 
       const minX = Math.max(0, Math.floor(cx - radius));
-      const maxX = Math.min(WORLD_W - 1, Math.ceil(cx + radius));
+      const maxX = Math.min(state.mapW - 1, Math.ceil(cx + radius));
       const minY = Math.max(0, Math.floor(cy - radius));
-      const maxY = Math.min(WORLD_H - 1, Math.ceil(cy + radius));
+      const maxY = Math.min(state.mapH - 1, Math.ceil(cy + radius));
+
+      const r2 = radius * radius;
+
+      const img = state.overlayCtx.getImageData(minX, minY, maxX - minX + 1, maxY - minY + 1);
+      const data = img.data;
 
       let changed = false;
 
-      for (let y = minY; y <= maxY; y++) {
+      for (let y = minY; y <= maxY; y += step) {
         const dy = y - cy;
-        const rowStart = y * WORLD_W;
 
-        for (let x = minX; x <= maxX; x++) {
+        for (let x = minX; x <= maxX; x += step) {
           const dx = x - cx;
 
           if (dx * dx + dy * dy > r2) continue;
 
-          const i = rowStart + x;
+          const idx = y * state.mapW + x;
 
-          // 海は選択不可
-          if (landMask[i] !== 1) continue;
+          if (state.selected[idx]) continue;
+          if (!isLandAtIndex(idx)) continue;
 
-          const oldValue = selectedMask[i];
-          const newValue = erase ? 0 : 1;
+          state.selected[idx] = 1;
+          state.currentStrokePixels.push(idx);
 
-          if (oldValue === newValue) continue;
+          state.selectedAreaKm2 += state.rowAreaKm2[y] * step * step;
+          state.selectedScore += getScoreAtIndex(idx) * CONFIG.scoreScale * step * step;
 
-          selectedMask[i] = newValue;
+          const localX = x - minX;
+          const localY = y - minY;
+          const localIdx = (localY * img.width + localX) * 4;
+
+          data[localIdx + 0] = 255;
+          data[localIdx + 1] = 80;
+          data[localIdx + 2] = 155;
+          data[localIdx + 3] = 160;
+
+          // step > 1 のとき、見た目の穴を減らす
+          if (step > 1) {
+            fillSmallBlock(data, img.width, img.height, localX, localY, step);
+          }
+
           changed = true;
-
-          if (currentStrokeChanges) {
-            currentStrokeChanges.push({ i, oldValue });
-          }
-
-          if (newValue === 1) {
-            selectedAreaKm2 += areaPerRow[y];
-          } else {
-            selectedAreaKm2 -= areaPerRow[y];
-          }
         }
       }
 
       if (changed) {
-        redrawSelectionPatch(minX, minY, maxX, maxY);
-        updateUI();
+        state.overlayCtx.putImageData(img, minX, minY);
       }
     }
 
-    function redrawSelectionPatch(minX, minY, maxX, maxY) {
-      const w = maxX - minX + 1;
-      const h = maxY - minY + 1;
-
-      const image = selectionCtx.createImageData(w, h);
-      const data = image.data;
-
-      for (let py = 0; py < h; py++) {
-        const y = minY + py;
-        const rowStart = y * WORLD_W;
-
-        for (let px = 0; px < w; px++) {
-          const x = minX + px;
-          const worldIndex = rowStart + x;
-          const p = (py * w + px) * 4;
-
-          if (selectedMask[worldIndex] === 1) {
-            data[p + 0] = SELECTED.r;
-            data[p + 1] = SELECTED.g;
-            data[p + 2] = SELECTED.b;
-            data[p + 3] = SELECTED.a;
-          } else {
-            data[p + 0] = 0;
-            data[p + 1] = 0;
-            data[p + 2] = 0;
-            data[p + 3] = 0;
-          }
+    function fillSmallBlock(data, w, h, x, y, size) {
+      for (let yy = y; yy < Math.min(h, y + size); yy++) {
+        for (let xx = x; xx < Math.min(w, x + size); xx++) {
+          const i = (yy * w + xx) * 4;
+          data[i + 0] = 255;
+          data[i + 1] = 80;
+          data[i + 2] = 155;
+          data[i + 3] = 160;
         }
       }
-
-      selectionCtx.putImageData(image, minX, minY);
     }
 
-    function clearSelectionCanvas() {
-      selectionCtx.clearRect(0, 0, WORLD_W, WORLD_H);
+    function isLandAtIndex(pixelIndex) {
+      const i = pixelIndex * 4;
+      const r = state.hiddenData[i + 0];
+      const g = state.hiddenData[i + 1];
+      const b = state.hiddenData[i + 2];
+      const a = state.hiddenData[i + 3];
+
+      if (a === 0) return false;
+
+      const dr = r - CONFIG.seaColor.r;
+      const dg = g - CONFIG.seaColor.g;
+      const db = b - CONFIG.seaColor.b;
+
+      const dist = Math.sqrt(dr * dr + dg * dg + db * db);
+
+      return dist > CONFIG.seaTolerance;
     }
 
-    function clearAll() {
-      selectedMask.fill(0);
-      selectedAreaKm2 = 0;
-      undoStack.length = 0;
-      undoBtn.disabled = true;
-      clearSelectionCanvas();
-      updateUI();
-    }
+    function getScoreAtIndex(pixelIndex) {
+      const i = pixelIndex * 4;
 
-    function undo() {
-      const changes = undoStack.pop();
-      if (!changes) return;
-
-      // 逆順に戻す
-      for (let k = changes.length - 1; k >= 0; k--) {
-        const { i, oldValue } = changes[k];
-        const current = selectedMask[i];
-
-        if (current === oldValue) continue;
-
-        selectedMask[i] = oldValue;
-
-        const y = Math.floor(i / WORLD_W);
-
-        if (oldValue === 1) {
-          selectedAreaKm2 += areaPerRow[y];
-        } else {
-          selectedAreaKm2 -= areaPerRow[y];
-        }
-      }
-
-      // 簡単のため、undo時は全選択レイヤーを再描画
-      redrawWholeSelection();
-      updateUI();
-
-      undoBtn.disabled = undoStack.length === 0;
-    }
-
-    function redrawWholeSelection() {
-      const image = selectionCtx.createImageData(WORLD_W, WORLD_H);
-      const data = image.data;
-
-      for (let i = 0; i < selectedMask.length; i++) {
-        if (selectedMask[i] !== 1) continue;
-
-        const p = i * 4;
-        data[p + 0] = SELECTED.r;
-        data[p + 1] = SELECTED.g;
-        data[p + 2] = SELECTED.b;
-        data[p + 3] = SELECTED.a;
-      }
-
-      selectionCtx.putImageData(image, 0, 0);
-    }
-
-    /*
-      ============================================================
-      UI
-      ============================================================
-    */
-
-    function updateUI() {
-      if (selectedAreaKm2 < 0.0001) {
-        selectedAreaKm2 = 0;
-      }
-
-      const rounded = Math.round(selectedAreaKm2);
-
-      areaText.textContent =
-        `選択面積: ${rounded.toLocaleString()} km²`;
-
-      if (selectedAreaKm2 === 0) {
-        statusText.innerHTML =
-          `左ドラッグで選択。右ドラッグまたは Shift + ドラッグで削除。`;
-        confirmBtn.disabled = true;
-        return;
-      }
-
-      if (selectedAreaKm2 > AREA_LIMIT_KM2) {
-        statusText.innerHTML =
-          `<span class="warning">面積上限を超えています。確定できません。</span>`;
-        confirmBtn.disabled = true;
-      } else {
-        statusText.innerHTML =
-          `<span class="ok">確定可能です。</span>`;
-        confirmBtn.disabled = false;
-      }
-    }
-
-    function confirmSelection() {
-      if (selectedAreaKm2 <= 0 || selectedAreaKm2 > AREA_LIMIT_KM2) {
-        return;
-      }
-
-      const payload = makeSelectionPayload();
-
-      console.log("送信用データ例:", payload);
-
-      alert(
-        "確定しました。\n" +
-        `選択面積: ${Math.round(selectedAreaKm2).toLocaleString()} km²\n\n` +
-        "今はデモなのでGDP計算は未接続です。\n" +
-        "送信用データは console に出しています。"
+      return scoreFromHiddenPixel(
+        state.hiddenData[i + 0],
+        state.hiddenData[i + 1],
+        state.hiddenData[i + 2],
+        state.hiddenData[i + 3]
       );
     }
 
     /*
-      ============================================================
-      サーバー送信用データ
-      ここでは単純に選択済みピクセルのbboxとRLEを作る。
-      本番ではこれをfetchで送る。
-      ============================================================
+      ここだけ前コードに合わせて差し替える。
+
+      今の仮仕様:
+      - 海は isLandAtIndex() で除外済み
+      - hidden画像の RGB 24bit を数値として読む
+      - #000001 なら 1、#0000ff なら255、#010000なら65536
+
+      もし map2_hidden_7200.png がグレースケール密度なら、
+      return r; や return r * 任意倍率; に変える。
     */
+    function scoreFromHiddenPixel(r, g, b, a) {
+      if (a === 0) return 0;
 
-    function makeSelectionPayload() {
-      const bbox = getSelectionBBox();
+      return (r << 16) + (g << 8) + b;
+    }
 
-      if (!bbox) {
-        return null;
-      }
+    /******************************************************************
+     * 表示
+     ******************************************************************/
 
-      const rle = buildRLE(bbox);
+    function render() {
+      if (!state.displayImg) return;
 
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const sx = state.offsetX / state.zoom;
+      const sy = state.offsetY / state.zoom;
+      const sw = state.viewW / state.zoom;
+      const sh = state.viewH / state.zoom;
+
+      ctx.drawImage(
+        state.displayImg,
+        sx,
+        sy,
+        sw,
+        sh,
+        0,
+        0,
+        state.viewW,
+        state.viewH
+      );
+
+      ctx.drawImage(
+        state.overlayCanvas,
+        sx,
+        sy,
+        sw,
+        sh,
+        0,
+        0,
+        state.viewW,
+        state.viewH
+      );
+    }
+
+    function resizeCanvas() {
+      const rect = stage.getBoundingClientRect();
+
+      state.dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+      state.viewW = Math.floor(rect.width);
+      state.viewH = Math.floor(rect.height);
+
+      canvas.width = state.viewW;
+      canvas.height = state.viewH;
+
+      canvas.style.width = `${state.viewW}px`;
+      canvas.style.height = `${state.viewH}px`;
+    }
+
+    function fitToScreen() {
+      const zx = state.viewW / state.mapW;
+      const zy = state.viewH / state.mapH;
+
+      state.zoom = Math.max(zx, zy, 0.1);
+      state.zoom = Math.max(1, state.zoom);
+
+      state.offsetX = 0;
+      state.offsetY = 0;
+
+      zoomSliderEl.value = String(Math.round(state.zoom * 100));
+
+      clampView();
+      updateScrollBars();
+      updateZoomText();
+    }
+
+    function clampView() {
+      const maxX = getMaxOffsetX();
+      const maxY = getMaxOffsetY();
+
+      state.offsetX = clamp(state.offsetX, 0, maxX);
+      state.offsetY = clamp(state.offsetY, 0, maxY);
+    }
+
+    function updateScrollBars() {
+      const maxX = getMaxOffsetX();
+      const maxY = getMaxOffsetY();
+
+      xBarEl.max = String(Math.max(0, Math.floor(maxX)));
+      yBarEl.max = String(Math.max(0, Math.floor(maxY)));
+
+      xBarEl.value = String(Math.round(state.offsetX));
+      yBarEl.value = String(Math.round(state.offsetY));
+    }
+
+    function getMaxOffsetX() {
+      return Math.max(0, state.mapW * state.zoom - state.viewW);
+    }
+
+    function getMaxOffsetY() {
+      return Math.max(0, state.mapH * state.zoom - state.viewH);
+    }
+
+    function screenToMap(x, y) {
       return {
-        version: 1,
-        width: WORLD_W,
-        height: WORLD_H,
-        bbox,
-        areaKm2: selectedAreaKm2,
-        encoding: "rle-selected-mask",
-        data: rle
+        x: (x + state.offsetX) / state.zoom,
+        y: (y + state.offsetY) / state.zoom
       };
     }
 
-    function getSelectionBBox() {
-      let minX = Infinity;
-      let minY = Infinity;
-      let maxX = -Infinity;
-      let maxY = -Infinity;
-
-      for (let y = 0; y < WORLD_H; y++) {
-        const rowStart = y * WORLD_W;
-
-        for (let x = 0; x < WORLD_W; x++) {
-          const i = rowStart + x;
-
-          if (selectedMask[i] !== 1) continue;
-
-          if (x < minX) minX = x;
-          if (x > maxX) maxX = x;
-          if (y < minY) minY = y;
-          if (y > maxY) maxY = y;
-        }
-      }
-
-      if (minX === Infinity) {
-        return null;
-      }
-
-      return { minX, minY, maxX, maxY };
+    function updateZoomText() {
+      zoomValueEl.textContent = String(Math.round(state.zoom * 100));
     }
 
-    function buildRLE(bbox) {
-      const result = [];
+    /******************************************************************
+     * UI・操作
+     ******************************************************************/
 
-      let currentValue = 0;
-      let currentLength = 0;
-      let initialized = false;
+    function updateStats() {
+      const area = state.selectedAreaKm2;
+      const over = area > CONFIG.areaLimitKm2;
 
-      for (let y = bbox.minY; y <= bbox.maxY; y++) {
-        const rowStart = y * WORLD_W;
+      areaTextEl.textContent = formatNumber(area);
+      confirmBtn.disabled = over || area <= 0;
 
-        for (let x = bbox.minX; x <= bbox.maxX; x++) {
-          const i = rowStart + x;
-          const value = selectedMask[i];
+      if (over) {
+        statusTextEl.textContent = "範囲が広すぎます";
+        statusTextEl.className = "danger";
+      } else {
+        statusTextEl.textContent = "確定可能";
+        statusTextEl.className = "ok";
+      }
+    }
 
-          if (!initialized) {
-            currentValue = value;
-            currentLength = 1;
-            initialized = true;
-            continue;
-          }
+    function clearSelection() {
+      state.selected.fill(0);
+      state.overlayCtx.clearRect(0, 0, state.mapW, state.mapH);
 
-          if (value === currentValue) {
-            currentLength++;
-          } else {
-            result.push(currentValue, currentLength);
-            currentValue = value;
-            currentLength = 1;
-          }
-        }
+      state.selectedAreaKm2 = 0;
+      state.selectedScore = 0;
+      state.undoStack = [];
+      state.currentStrokePixels = [];
+
+      resultTextEl.textContent = "";
+
+      updateStats();
+      render();
+    }
+
+    function undoStroke() {
+      const pixels = state.undoStack.pop();
+
+      if (!pixels || pixels.length === 0) return;
+
+      const touchedBoxes = [];
+
+      for (const idx of pixels) {
+        if (!state.selected[idx]) continue;
+
+        state.selected[idx] = 0;
+
+        const y = Math.floor(idx / state.mapW);
+        const x = idx - y * state.mapW;
+
+        state.selectedAreaKm2 -= state.rowAreaKm2[y] * CONFIG.paintStep * CONFIG.paintStep;
+        state.selectedScore -= getScoreAtIndex(idx) * CONFIG.scoreScale * CONFIG.paintStep * CONFIG.paintStep;
+
+        touchedBoxes.push({ x, y });
       }
 
-      if (initialized) {
-        result.push(currentValue, currentLength);
+      // 単純確実に全オーバーレイを再構築。
+      // 7200px級なら少し待つが、undo頻度は低いのでこの方が安全。
+      rebuildOverlay();
+
+      state.selectedAreaKm2 = Math.max(0, state.selectedAreaKm2);
+      state.selectedScore = Math.max(0, state.selectedScore);
+
+      resultTextEl.textContent = "";
+
+      updateStats();
+      render();
+    }
+
+    function rebuildOverlay() {
+      state.overlayCtx.clearRect(0, 0, state.mapW, state.mapH);
+
+      const img = state.overlayCtx.createImageData(state.mapW, state.mapH);
+      const data = img.data;
+
+      for (let i = 0; i < state.selected.length; i++) {
+        if (!state.selected[i]) continue;
+
+        const j = i * 4;
+        data[j + 0] = 255;
+        data[j + 1] = 80;
+        data[j + 2] = 155;
+        data[j + 3] = 160;
       }
 
-      return result;
+      state.overlayCtx.putImageData(img, 0, 0);
+    }
+
+    function confirmSelection() {
+      if (state.selectedAreaKm2 <= 0) {
+        resultTextEl.textContent = "まだ選択されていません。";
+        return;
+      }
+
+      if (state.selectedAreaKm2 > CONFIG.areaLimitKm2) {
+        resultTextEl.textContent = "面積上限を超えているため確定できません。";
+        return;
+      }
+
+      resultTextEl.innerHTML = `
+        確定しました。<br>
+        面積: ${formatNumber(state.selectedAreaKm2)} km²<br>
+        名目GDPスコア: ${formatNumber(state.selectedScore)}
+      `;
+
+      // サーバーに送るならここ。
+      // sendSelectionToServer();
+    }
+
+    async function sendSelectionToServer() {
+      /*
+        必要になったら使う。
+        selected 全体をそのまま送ると大きいので、
+        本番ではタイル単位・RLE・bitset化して送るのがよい。
+
+        const payload = buildCompressedSelectionPayload();
+
+        await fetch("/api/confirm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+      */
+    }
+
+    /******************************************************************
+     * Utility
+     ******************************************************************/
+
+    function clamp(v, min, max) {
+      return Math.min(max, Math.max(min, v));
+    }
+
+    function formatNumber(value) {
+      return new Intl.NumberFormat("ja-JP", {
+        maximumFractionDigits: value >= 100 ? 0 : 2
+      }).format(value);
     }
   </script>
 </body>
