@@ -13,7 +13,6 @@
       --ui-border: rgba(255, 255, 255, 0.14);
       --text: #f5f7fb;
       --muted: #aab2c0;
-      --pink: rgba(255, 80, 155, 0.62);
       --danger: #ff5c74;
       --ok: #5cff9d;
     }
@@ -27,12 +26,7 @@
       overflow: hidden;
       background: #0b1020;
       color: var(--text);
-      font-family:
-        system-ui,
-        -apple-system,
-        BlinkMacSystemFont,
-        "Segoe UI",
-        sans-serif;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       user-select: none;
     }
 
@@ -116,7 +110,7 @@
     button {
       border: 0;
       border-radius: 10px;
-      padding: 10px 10px;
+      padding: 10px;
       background: #263145;
       color: var(--text);
       font-weight: 700;
@@ -295,46 +289,33 @@
   <script>
     "use strict";
 
-    /******************************************************************
-     * 設定
-     ******************************************************************/
-
     const CONFIG = {
       displayMapUrl: "./map1_display_7200.png",
       hiddenMapUrl: "./map2_hidden_7200.png",
 
-      // 面積上限
-      areaLimitKm2: 50_000,
+      areaLimitKm2: 50000,
 
-      // map画像の投影法。
-      // "auto": 横:縦が約2:1なら equirectangular、それ以外なら mercator
-      // "equirectangular": 経度緯度の正距円筒図法
-      // "mercator": Webメルカトル想定
+      // "auto", "equirectangular", "mercator"
       projection: "auto",
 
-      // hidden画像で海とみなす色。
-      // 陸地判定は「この色に近ければ海、それ以外は陸」としている。
-      // map2_hidden が「海=青、陸=その他」ならこのままでOK。
+      // hidden画像で海を表す色。
+      // hidden画像の海が青ならこのまま。
       seaColor: { r: 0, g: 0, b: 255 },
       seaTolerance: 10,
 
-      // 選択表示色
-      selectionColor: "rgba(255, 80, 155, 0.62)",
+      selectionR: 255,
+      selectionG: 80,
+      selectionB: 155,
+      selectionA: 165,
 
-      // 選択が重い場合は 1, 2, 3 あたりにする。
-      // 1なら全ピクセル判定。2なら2px刻みの近似。
+      // 重かったら 2 にする。まずは 1。
       paintStep: 1,
 
-      // GDPスコアの表示倍率。
-      // scoreFromHiddenPixel() の返り値に掛ける。
+      // scoreFromHiddenPixel の結果に掛ける倍率。
       scoreScale: 1
     };
 
     const EARTH_RADIUS_KM = 6371.0072;
-
-    /******************************************************************
-     * DOM
-     ******************************************************************/
 
     const stage = document.getElementById("stage");
     const canvas = document.getElementById("mainCanvas");
@@ -361,10 +342,6 @@
     const confirmBtn = document.getElementById("confirmBtn");
     const fitBtn = document.getElementById("fitBtn");
 
-    /******************************************************************
-     * 状態
-     ******************************************************************/
-
     const state = {
       displayImg: null,
       hiddenImg: null,
@@ -372,7 +349,6 @@
       mapW: 0,
       mapH: 0,
 
-      dpr: 1,
       viewW: 0,
       viewH: 0,
 
@@ -386,38 +362,31 @@
       lastScreenX: null,
       lastScreenY: null,
 
-      // hidden画像のRGBA
+      // map1と同じサイズに正規化したhidden画像データ
       hiddenData: null,
 
-      // 選択済みフラグ。1なら選択済み。
+      // 選択済みフラグ。map1側ピクセル単位。
       selected: null,
 
-      // 行ごとの1ピクセル面積 km²
       rowAreaKm2: null,
 
-      // ピンク表示用オフスクリーンCanvas
       overlayCanvas: document.createElement("canvas"),
       overlayCtx: null,
 
       selectedAreaKm2: 0,
       selectedScore: 0,
 
-      // undo用。1ストロークで新規選択されたピクセルだけ保存。
       currentStrokePixels: [],
       undoStack: [],
 
       projectionResolved: "equirectangular"
     };
 
-    state.overlayCtx = state.overlayCanvas.getContext("2d");
-
-    /******************************************************************
-     * 起動
-     ******************************************************************/
+    state.overlayCtx = state.overlayCanvas.getContext("2d", { willReadFrequently: true });
 
     main().catch(err => {
       console.error(err);
-      loadingEl.textContent = "読み込みに失敗しました。Consoleを確認してください。";
+      loadingEl.textContent = String(err.message || err);
     });
 
     async function main() {
@@ -428,19 +397,19 @@
         loadImage(CONFIG.hiddenMapUrl)
       ]);
 
-      if (displayImg.naturalWidth !== hiddenImg.naturalWidth ||
-          displayImg.naturalHeight !== hiddenImg.naturalHeight) {
-        throw new Error("map1_display_7200.png と map2_hidden_7200.png のサイズが一致していません。");
-      }
-
       state.displayImg = displayImg;
       state.hiddenImg = hiddenImg;
+
       state.mapW = displayImg.naturalWidth;
       state.mapH = displayImg.naturalHeight;
 
       state.projectionResolved = resolveProjection(state.mapW, state.mapH);
 
-      prepareHiddenData();
+      console.log("display size:", state.mapW, state.mapH);
+      console.log("hidden original size:", hiddenImg.naturalWidth, hiddenImg.naturalHeight);
+      console.log("projection:", state.projectionResolved);
+
+      prepareHiddenDataNormalizedToDisplaySize();
       prepareSelectionOverlay();
       prepareAreaWeights();
 
@@ -463,13 +432,28 @@
       });
     }
 
-    function prepareHiddenData() {
+    function prepareHiddenDataNormalizedToDisplaySize() {
       const hiddenCanvas = document.createElement("canvas");
       hiddenCanvas.width = state.mapW;
       hiddenCanvas.height = state.mapH;
 
       const hiddenCtx = hiddenCanvas.getContext("2d", { willReadFrequently: true });
-      hiddenCtx.drawImage(state.hiddenImg, 0, 0);
+
+      // 重要：RGB値が補間で壊れないようにする。
+      hiddenCtx.imageSmoothingEnabled = false;
+
+      // map2_hidden_7200.png のサイズが違っても、map1側サイズに合わせて読み込む。
+      hiddenCtx.drawImage(
+        state.hiddenImg,
+        0,
+        0,
+        state.hiddenImg.naturalWidth,
+        state.hiddenImg.naturalHeight,
+        0,
+        0,
+        state.mapW,
+        state.mapH
+      );
 
       state.hiddenData = hiddenCtx.getImageData(0, 0, state.mapW, state.mapH).data;
       state.selected = new Uint8Array(state.mapW * state.mapH);
@@ -488,10 +472,6 @@
         state.rowAreaKm2[y] = calcPixelAreaAtRowKm2(y);
       }
     }
-
-    /******************************************************************
-     * 投影法と面積
-     ******************************************************************/
 
     function resolveProjection(w, h) {
       if (CONFIG.projection !== "auto") return CONFIG.projection;
@@ -530,10 +510,6 @@
     function mercatorYToLatRad(t) {
       return Math.atan(Math.sinh(Math.PI * (1 - 2 * t)));
     }
-
-    /******************************************************************
-     * イベント
-     ******************************************************************/
 
     function bindEvents() {
       window.addEventListener("resize", () => {
@@ -592,8 +568,6 @@
       canvas.addEventListener("pointerup", onPointerUp);
       canvas.addEventListener("pointercancel", onPointerUp);
       canvas.addEventListener("pointerleave", onPointerUp);
-
-      // ブラウザの右クリックメニューを防ぐ
       canvas.addEventListener("contextmenu", e => e.preventDefault());
     }
 
@@ -650,10 +624,6 @@
       };
     }
 
-    /******************************************************************
-     * 描画・選択
-     ******************************************************************/
-
     function paintLineScreen(x1, y1, x2, y2) {
       const dx = x2 - x1;
       const dy = y2 - y1;
@@ -675,24 +645,28 @@
     }
 
     function paintCircleMap(cx, cy, radius) {
-      const step = Math.max(1, CONFIG.paintStep);
+      const paintStep = Math.max(1, CONFIG.paintStep);
 
       const minX = Math.max(0, Math.floor(cx - radius));
       const maxX = Math.min(state.mapW - 1, Math.ceil(cx + radius));
       const minY = Math.max(0, Math.floor(cy - radius));
       const maxY = Math.min(state.mapH - 1, Math.ceil(cy + radius));
 
+      const w = maxX - minX + 1;
+      const h = maxY - minY + 1;
+      if (w <= 0 || h <= 0) return;
+
       const r2 = radius * radius;
 
-      const img = state.overlayCtx.getImageData(minX, minY, maxX - minX + 1, maxY - minY + 1);
+      const img = state.overlayCtx.getImageData(minX, minY, w, h);
       const data = img.data;
 
       let changed = false;
 
-      for (let y = minY; y <= maxY; y += step) {
+      for (let y = minY; y <= maxY; y += paintStep) {
         const dy = y - cy;
 
-        for (let x = minX; x <= maxX; x += step) {
+        for (let x = minX; x <= maxX; x += paintStep) {
           const dx = x - cx;
 
           if (dx * dx + dy * dy > r2) continue;
@@ -705,23 +679,13 @@
           state.selected[idx] = 1;
           state.currentStrokePixels.push(idx);
 
-          state.selectedAreaKm2 += state.rowAreaKm2[y] * step * step;
-          state.selectedScore += getScoreAtIndex(idx) * CONFIG.scoreScale * step * step;
+          state.selectedAreaKm2 += state.rowAreaKm2[y] * paintStep * paintStep;
+          state.selectedScore += getScoreAtIndex(idx) * CONFIG.scoreScale * paintStep * paintStep;
 
-          const localX = x - minX;
-          const localY = y - minY;
-          const localIdx = (localY * img.width + localX) * 4;
+          const lx = x - minX;
+          const ly = y - minY;
 
-          data[localIdx + 0] = 255;
-          data[localIdx + 1] = 80;
-          data[localIdx + 2] = 155;
-          data[localIdx + 3] = 160;
-
-          // step > 1 のとき、見た目の穴を減らす
-          if (step > 1) {
-            fillSmallBlock(data, img.width, img.height, localX, localY, step);
-          }
-
+          fillOverlayBlock(data, w, h, lx, ly, paintStep);
           changed = true;
         }
       }
@@ -731,14 +695,14 @@
       }
     }
 
-    function fillSmallBlock(data, w, h, x, y, size) {
+    function fillOverlayBlock(data, w, h, x, y, size) {
       for (let yy = y; yy < Math.min(h, y + size); yy++) {
         for (let xx = x; xx < Math.min(w, x + size); xx++) {
           const i = (yy * w + xx) * 4;
-          data[i + 0] = 255;
-          data[i + 1] = 80;
-          data[i + 2] = 155;
-          data[i + 3] = 160;
+          data[i + 0] = CONFIG.selectionR;
+          data[i + 1] = CONFIG.selectionG;
+          data[i + 2] = CONFIG.selectionB;
+          data[i + 3] = CONFIG.selectionA;
         }
       }
     }
@@ -755,7 +719,6 @@
       const dr = r - CONFIG.seaColor.r;
       const dg = g - CONFIG.seaColor.g;
       const db = b - CONFIG.seaColor.b;
-
       const dist = Math.sqrt(dr * dr + dg * dg + db * db);
 
       return dist > CONFIG.seaTolerance;
@@ -773,25 +736,19 @@
     }
 
     /*
-      ここだけ前コードに合わせて差し替える。
+      ここだけ、前のコードのGDP変換式に合わせて変える。
 
       今の仮仕様:
-      - 海は isLandAtIndex() で除外済み
-      - hidden画像の RGB 24bit を数値として読む
-      - #000001 なら 1、#0000ff なら255、#010000なら65536
-
-      もし map2_hidden_7200.png がグレースケール密度なら、
-      return r; や return r * 任意倍率; に変える。
+      hidden画像のRGB 24bit値をそのままスコアとして読む。
+      #000001 -> 1
+      #0000FF -> 255
+      #010000 -> 65536
     */
     function scoreFromHiddenPixel(r, g, b, a) {
       if (a === 0) return 0;
 
       return (r << 16) + (g << 8) + b;
     }
-
-    /******************************************************************
-     * 表示
-     ******************************************************************/
 
     function render() {
       if (!state.displayImg) return;
@@ -831,7 +788,6 @@
     function resizeCanvas() {
       const rect = stage.getBoundingClientRect();
 
-      state.dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
       state.viewW = Math.floor(rect.width);
       state.viewH = Math.floor(rect.height);
 
@@ -846,8 +802,7 @@
       const zx = state.viewW / state.mapW;
       const zy = state.viewH / state.mapH;
 
-      state.zoom = Math.max(zx, zy, 0.1);
-      state.zoom = Math.max(1, state.zoom);
+      state.zoom = Math.max(zx, zy, 1);
 
       state.offsetX = 0;
       state.offsetY = 0;
@@ -897,10 +852,6 @@
       zoomValueEl.textContent = String(Math.round(state.zoom * 100));
     }
 
-    /******************************************************************
-     * UI・操作
-     ******************************************************************/
-
     function updateStats() {
       const area = state.selectedAreaKm2;
       const over = area > CONFIG.areaLimitKm2;
@@ -937,28 +888,21 @@
 
       if (!pixels || pixels.length === 0) return;
 
-      const touchedBoxes = [];
-
       for (const idx of pixels) {
         if (!state.selected[idx]) continue;
 
         state.selected[idx] = 0;
 
         const y = Math.floor(idx / state.mapW);
-        const x = idx - y * state.mapW;
 
         state.selectedAreaKm2 -= state.rowAreaKm2[y] * CONFIG.paintStep * CONFIG.paintStep;
         state.selectedScore -= getScoreAtIndex(idx) * CONFIG.scoreScale * CONFIG.paintStep * CONFIG.paintStep;
-
-        touchedBoxes.push({ x, y });
       }
-
-      // 単純確実に全オーバーレイを再構築。
-      // 7200px級なら少し待つが、undo頻度は低いのでこの方が安全。
-      rebuildOverlay();
 
       state.selectedAreaKm2 = Math.max(0, state.selectedAreaKm2);
       state.selectedScore = Math.max(0, state.selectedScore);
+
+      rebuildOverlay();
 
       resultTextEl.textContent = "";
 
@@ -976,10 +920,10 @@
         if (!state.selected[i]) continue;
 
         const j = i * 4;
-        data[j + 0] = 255;
-        data[j + 1] = 80;
-        data[j + 2] = 155;
-        data[j + 3] = 160;
+        data[j + 0] = CONFIG.selectionR;
+        data[j + 1] = CONFIG.selectionG;
+        data[j + 2] = CONFIG.selectionB;
+        data[j + 3] = CONFIG.selectionA;
       }
 
       state.overlayCtx.putImageData(img, 0, 0);
@@ -1001,30 +945,7 @@
         面積: ${formatNumber(state.selectedAreaKm2)} km²<br>
         名目GDPスコア: ${formatNumber(state.selectedScore)}
       `;
-
-      // サーバーに送るならここ。
-      // sendSelectionToServer();
     }
-
-    async function sendSelectionToServer() {
-      /*
-        必要になったら使う。
-        selected 全体をそのまま送ると大きいので、
-        本番ではタイル単位・RLE・bitset化して送るのがよい。
-
-        const payload = buildCompressedSelectionPayload();
-
-        await fetch("/api/confirm", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
-      */
-    }
-
-    /******************************************************************
-     * Utility
-     ******************************************************************/
 
     function clamp(v, min, max) {
       return Math.min(max, Math.max(min, v));
